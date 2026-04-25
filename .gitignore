@@ -1,0 +1,24 @@
+# Virtual Environment
+.venv/
+
+# Environment & Secrets
+.env
+
+# Python Cache
+__pycache__/
+*.pyc
+*.pyo
+
+# Database files
+*.db
+
+# Data folders
+data/cache/
+data/exports/
+data/portfolio/
+
+# macOS system files
+.DS_Store
+
+# Logs
+*.log

@@ -1,0 +1,12 @@
+holdings:
+- ticker: RELIANCE.NS
+  company_name: Reliance Industries
+  sector: Energy
+  buy_price: 2450.0
+  quantity: 10
+  buy_date: 15-01-2024
+  stop_loss_pct: 8.0
+  thesis: Dominant conglomerate with Jio and retail as growth engines.
+  thesis_intact: true
+_note: This file will be auto-populated from your Excel file when SKILL-D14 runs in
+  Phase 4. Update holdings manually or leave the import to handle it.

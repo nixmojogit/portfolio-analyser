@@ -1,0 +1,10 @@
+# Step 3 — Re-import portfolio
+python -c "
+from src.layers.data.fundamentals_module import import_portfolio_from_excel
+result = import_portfolio_from_excel('data/input/portfolio.xlsx')
+print('Status  :', result['import_status'])
+print('Holdings:', len(result['holdings_df']))
+print('Errors  :', result['validation_errors'])
+print()
+print(result['holdings_df'][['Ticker','Company Name','Sector','Buy Price','Quantity']].to_string())
+"

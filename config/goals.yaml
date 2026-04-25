@@ -1,0 +1,52 @@
+active_goals:
+  G1: true
+  G2: true
+  G3: true
+target_sector_allocation:
+  Technology: 20
+  Financial Services: 20
+  Consumer: 15
+  Healthcare: 10
+  Energy: 10
+  Pharma: 10
+  Automobile: 5
+  Infrastructure: 5
+  FMCG: 5
+  Others: 0
+rebalancing_drift_threshold: 5
+rebalancing_urgency_immediate: 10
+screening_filters:
+  min_market_cap_cr: 1000
+  min_revenue_growth_yoy_pct: 5
+  fcf_must_be_positive: true
+  min_avg_daily_volume: 100000
+max_concentration_per_stock_pct: 15
+min_holdings: 10
+max_holdings: 20
+cash_reserve_pct: 5
+schedule:
+  g1_daily_time_ist: '16:30'
+  g2_weekly_day: monday
+  g2_weekly_time_ist: 06:00
+  g3_quarterly_months:
+  - 1
+  - 4
+  - 7
+  - 10
+  g3_quarterly_day: 1
+  g3_quarterly_time_ist: 06:00
+g2_switch_score_gap: 15
+g2_distribute_score_gap: 5
+g2_min_candidate_score: 45
+sector_index_map:
+  Technology: ^CNXIT
+  Financial Services: ^NSEBANK
+  Healthcare: ^CNXPHARMA
+  Pharma: ^CNXPHARMA
+  Consumer: ^CNXFMCG
+  FMCG: ^CNXFMCG
+  Automobile: ^CNXAUTO
+  Energy: ^CNXENERGY
+  Metals: ^CNXMETAL
+  Infrastructure: ^CNXINFRA
+  Realty: ^CNXREALTY

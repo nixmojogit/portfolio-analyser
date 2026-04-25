@@ -1,0 +1,30 @@
+# Step 1 — Clear holdings table in portfolio.db
+python - << 'PYEOF'
+import sqlite3
+from pathlib import Path
+
+db = Path("data/portfolio/portfolio.db")
+with sqlite3.connect(db) as conn:
+    # Clear all related tables for a clean re-import
+    conn.execute("DELETE FROM holdings")
+    conn.execute("DELETE FROM scores_history")
+    conn.execute("DELETE FROM recommendations_history")
+    conn.execute("DELETE FROM alerts_log")
+    conn.commit()
+    
+    # Verify
+    count = conn.execute("SELECT COUNT(*) FROM holdings").fetchone()[0]
+    print(f"Holdings remaining: {count}")
+    print("Database cleared successfully")
+PYEOF
+
+# Step 2 — Re-import from your updated Excel file
+python -c "
+from src.layers.data.fundamentals_module import import_portfolio_from_excel
+result = import_portfolio_from_excel('data/input/portfolio.xlsx')
+print('Status  :', result['import_status'])
+print('Holdings:', len(result['holdings_df']))
+print('Errors  :', result['validation_errors'])
+print()
+print(result['holdings_df'][['Ticker','Company Name','Sector','Buy Price','Quantity']].to_string())
+"
