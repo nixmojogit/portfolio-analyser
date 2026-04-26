@@ -16,9 +16,11 @@ from src.layers.configuration.config_manager import load_config
 from src.layers.action.orchestrator import run_g1_workflow
 from src.layers.presentation.dashboard import render_portfolio_overview, render_alerts_panel
 from src.layers.presentation.stock_detail_view import render_stock_detail_view
+from src.layers.presentation.portfolio_view import render_opportunities_view
 from src.utils.logger import setup_root_logger
+from src.utils.helpers import is_market_open
 
-# ── App Config ────────────────────────────────────────────────────────────────
+# -- App Config ----------------------------------------------------------------
 
 st.set_page_config(
     page_title="Portfolio Analyser",
@@ -33,7 +35,7 @@ PORTFOLIO_DB = Path("data/portfolio/portfolio.db")
 INPUT_DIR    = Path("data/input")
 LAST_RESULTS = Path("data/portfolio/last_results.json")
 
-# ── Global CSS ────────────────────────────────────────────────────────────────
+# -- Global CSS ----------------------------------------------------------------
 
 st.markdown("""
 <style>
@@ -68,9 +70,10 @@ div[data-testid="stAlert"] {
 """, unsafe_allow_html=True)
 
 
-# ── Persistence Helpers ───────────────────────────────────────────────────────
+# -- Persistence Helpers -------------------------------------------------------
 
 def _save_results(results: dict) -> None:
+    """Persist full analysis results to disk after every run."""
     try:
         LAST_RESULTS.parent.mkdir(parents=True, exist_ok=True)
 
@@ -127,7 +130,7 @@ def _results_age(results: dict) -> str:
         return "unknown"
 
 
-# ── Portfolio DB Helpers ──────────────────────────────────────────────────────
+# -- Portfolio DB Helpers ------------------------------------------------------
 
 def _holdings_count() -> int:
     try:
@@ -138,24 +141,33 @@ def _holdings_count() -> int:
 
 
 def _run_portfolio_import(uploaded_file, config: dict) -> None:
+    """
+    Import portfolio from Excel. Permanent loop guard: uses a unique key
+    based on filename + filesize to prevent re-importing the same file
+    on Streamlit reruns. Re-importing a genuinely updated file (different
+    size) always works correctly.
+    """
     from src.layers.data.fundamentals_module import import_portfolio_from_excel
 
-    # Permanent loop guard — unique key per file based on name + size
+    # Loop guard -- skip if this exact file was already imported this session
     file_key = f"{uploaded_file.name}_{uploaded_file.size}"
     if st.session_state.get("_last_import_key") == file_key:
-        return   # already imported this file in this session — skip silently
+        return
 
     INPUT_DIR.mkdir(parents=True, exist_ok=True)
     save_path = INPUT_DIR / "portfolio.xlsx"
     with open(save_path, "wb") as f:
         f.write(uploaded_file.getbuffer())
-    with st.spinner("Importing portfolio …"):
+
+    with st.spinner("Importing portfolio ..."):
         result = import_portfolio_from_excel(str(save_path), config)
+
     status = result.get("import_status", "failed")
     errors = result.get("validation_errors", [])
     df     = result.get("holdings_df")
+
     if status == "success":
-        st.session_state["_last_import_key"] = file_key   # record before rerun
+        st.session_state["_last_import_key"] = file_key
         st.success(f"✅ {len(df)} holding(s) imported successfully.")
         st.session_state["analysis_results"] = None
         st.rerun()
@@ -170,11 +182,16 @@ def _run_portfolio_import(uploaded_file, config: dict) -> None:
         for e in errors: st.caption(f"• {e}")
 
 
-# ── Change 8: Discovery stock data builder ────────────────────────────────────
+# -- Discovery Stock Data Builder ----------------------------------------------
 
 def _build_discovery_stock_data(candidate: dict) -> dict:
+    """
+    Build a stock_data dict compatible with render_stock_detail_view
+    from a G2 discovery candidate. Uses real metrics computed during
+    evaluate_candidate() if available.
+    """
     ticker = candidate.get("ticker", "")
-    score  = candidate.get("peer_score") or 0
+    score  = candidate.get("overall_score") or candidate.get("peer_score") or 0
     tag    = candidate.get("action_tag", "Initiate")
     rat    = candidate.get("rationale", {})
 
@@ -187,11 +204,14 @@ def _build_discovery_stock_data(candidate: dict) -> dict:
     r_score = _grade_score(candidate.get("risk_grade"),        {"Low": 75, "Moderate": 50, "High": 20})
     s_score = _grade_score(candidate.get("sentiment_grade"),   {"Positive": 75, "Mixed": 50, "Negative": 20})
 
+    # Use real metrics from evaluate_candidate() if present
+    raw_metrics = candidate.get("metrics", {})
+
     return {
         "ticker":        ticker,
         "company_name":  ticker.replace(".NS", "").replace(".BO", ""),
-        "sector":        candidate.get("sector", "—"),
-        "current_price": None,
+        "sector":        candidate.get("sector", "-"),
+        "current_price": raw_metrics.get("current_price"),
         "buy_price":     None,
         "quantity":      0,
         "holding_value": 0,
@@ -207,31 +227,31 @@ def _build_discovery_stock_data(candidate: dict) -> dict:
         },
         "fundamental_score": {
             "fundamental_score": f_score,
-            "fundamental_grade": candidate.get("fundamental_grade", "—"),
+            "fundamental_grade": candidate.get("fundamental_grade", "-"),
             "fundamental_breakdown": {},
         },
         "technical_score": {
             "technical_score": t_score,
-            "technical_grade": candidate.get("technical_grade", "—"),
+            "technical_grade": candidate.get("technical_grade", "-"),
             "technical_breakdown": {},
         },
         "valuation_score": {
             "valuation_score": v_score,
-            "valuation_grade": candidate.get("valuation_grade", "—"),
+            "valuation_grade": candidate.get("valuation_grade", "-"),
             "valuation_breakdown": {},
         },
         "risk_score": {
             "risk_score": r_score,
-            "risk_grade": candidate.get("risk_grade", "—"),
+            "risk_grade": candidate.get("risk_grade", "-"),
             "risk_breakdown": {},
         },
         "sentiment_score": {
             "sentiment_scorecard_score": s_score,
-            "sentiment_grade": candidate.get("sentiment_grade", "—"),
+            "sentiment_grade": candidate.get("sentiment_grade", "-"),
             "sentiment_breakdown": {},
         },
         "stop_loss": {
-            "stop_loss_price": None, "stop_loss_method": "—",
+            "stop_loss_price": None, "stop_loss_method": "-",
             "atr_value": None, "equivalent_stop_pct": None,
             "current_drawdown_pct": None, "proximity_to_stop_pct": None,
             "stop_loss_signal": "safe",
@@ -247,17 +267,17 @@ def _build_discovery_stock_data(candidate: dict) -> dict:
             "override_applied":         False,
         },
         "metrics": {
-            **raw_metrics,   # use real computed metrics
-            # ensure all expected keys exist with fallbacks
-            "sentiment_score":    raw_metrics.get("sentiment_score", s_score),
-            "sentiment_label":    raw_metrics.get("sentiment_label", "neutral"),
-            "positive_themes":    raw_metrics.get("positive_themes", []),
-            "negative_themes":    raw_metrics.get("negative_themes", []),
-            "analyst_rec":        raw_metrics.get("analyst_rec"),
-            "analyst_rec_firm":   raw_metrics.get("analyst_rec_firm"),
-            "analyst_rec_source": raw_metrics.get("analyst_rec_source"),
-            "analyst_rec_note":   raw_metrics.get("analyst_rec_note"),
-            "analyst_target":     raw_metrics.get("analyst_target"),
+            **raw_metrics,
+            # Ensure all expected keys exist with safe fallbacks
+            "sentiment_score":       raw_metrics.get("sentiment_score", s_score),
+            "sentiment_label":       raw_metrics.get("sentiment_label", "neutral"),
+            "positive_themes":       raw_metrics.get("positive_themes", []),
+            "negative_themes":       raw_metrics.get("negative_themes", []),
+            "analyst_rec":           raw_metrics.get("analyst_rec"),
+            "analyst_rec_firm":      raw_metrics.get("analyst_rec_firm"),
+            "analyst_rec_source":    raw_metrics.get("analyst_rec_source"),
+            "analyst_rec_note":      raw_metrics.get("analyst_rec_note"),
+            "analyst_target":        raw_metrics.get("analyst_target"),
             "analyst_target_source": raw_metrics.get("analyst_target_source"),
             "analyst_target_note":   raw_metrics.get("analyst_target_note"),
             "analyst_target_mean":   raw_metrics.get("analyst_target_mean"),
@@ -274,7 +294,7 @@ def _build_discovery_stock_data(candidate: dict) -> dict:
     }
 
 
-# ── Session State ─────────────────────────────────────────────────────────────
+# -- Session State -------------------------------------------------------------
 
 if "config" not in st.session_state:
     st.session_state["config"] = load_config()
@@ -287,7 +307,7 @@ if "analysis_results" not in st.session_state:
     st.session_state["_from_disk"] = st.session_state["analysis_results"] is not None
 
 
-# ── Sidebar ───────────────────────────────────────────────────────────────────
+# -- Sidebar -------------------------------------------------------------------
 
 with st.sidebar:
 
@@ -299,11 +319,8 @@ with st.sidebar:
     analysis       = st.session_state.get("analysis_results")
 
     col_a, col_b = st.columns(2)
-    col_a.metric("Holdings", holdings_count if holdings_count else "—")
-    if analysis:
-        col_b.metric("Last Run", _results_age(analysis))
-    else:
-        col_b.metric("Last Run", "Never")
+    col_a.metric("Holdings", holdings_count if holdings_count else "-")
+    col_b.metric("Last Run", _results_age(analysis) if analysis else "Never")
 
     st.divider()
 
@@ -311,14 +328,14 @@ with st.sidebar:
         st.markdown("**Import your portfolio to begin:**")
         up = st.file_uploader(
             "Upload portfolio.xlsx", type=["xlsx"], key="initial_uploader",
-            help="Required: Ticker · Company Name · Sector · Buy Price · Quantity"
+            help="Required: Ticker, Company Name, Sector, Buy Price, Quantity"
         )
         if up:
             _run_portfolio_import(up, st.session_state["config"])
         st.caption(
             "Required columns: Ticker, Company Name, Sector, Buy Price, Quantity\n\n"
             "Optional: Stop Loss %, Investment Thesis\n\n"
-            "Tickers without `.NS`/`.BO` default to NSE."
+            "Tickers without .NS/.BO default to NSE."
         )
     else:
         with st.expander("📂 Import / Update Portfolio"):
@@ -339,7 +356,7 @@ with st.sidebar:
         type="primary",
         disabled=run_disabled,
     ):
-        with st.spinner("Running portfolio analysis …"):
+        with st.spinner("Running portfolio analysis ..."):
             config  = st.session_state["config"]
             results = run_g1_workflow(config)
             st.session_state["analysis_results"] = results
@@ -348,35 +365,125 @@ with st.sidebar:
             _save_results(results)
 
         g1 = len(results.get("results", {}))
-        g2 = len(results.get("g2_results", {}).get("ranked_candidates", []))
+        g2 = len(results.get("g2_results", {}).get("new_ideas", []))
         g3 = len(results.get("g3_results", {}).get("rebalancing_plan", []))
         er = len(results.get("errors", {}))
 
         if er == 0:
-            st.success(f"✅ Analysis complete — {g1} stocks scored, "
-                       f"{g2} opportunities found, {g3} rebalancing actions.")
+            st.success(
+                f"✅ Analysis complete - {g1} stocks scored, "
+                f"{g2} new ideas found, {g3} rebalancing actions."
+            )
         else:
-            st.warning(f"⚠️ Completed with {er} error(s). "
-                       f"Stocks: {g1} | Opportunities: {g2} | Actions: {g3}")
+            st.warning(
+                f"⚠️ Completed with {er} error(s). "
+                f"Stocks: {g1} | Ideas: {g2} | Actions: {g3}"
+            )
         st.rerun()
 
     if run_disabled:
         st.caption("Import your portfolio above to enable analysis.")
 
     if analysis and st.session_state.get("_from_disk"):
-        st.caption("📂 Displaying saved results — click Run to refresh.")
-
-    # Changes 1 & 2: Portfolio Health, Needs Attention,
-    # Market Status, Rebalancing, New Ideas all removed.
+        st.caption("📂 Displaying saved results - click Run to refresh.")
 
     st.divider()
-    st.caption(
-        "**Portfolio Analyser v1.0**\n\n"
-        "NSE / BSE · AI-powered scoring"
-    )
+
+    # Sidebar portfolio health & status
+    if analysis and analysis.get("results"):
+        results = analysis["results"]
+        g2      = analysis.get("g2_results", {})
+        g3      = analysis.get("g3_results", {})
+        pa      = g3.get("portfolio_analytics", {})
+
+        avg_score = sum(r.get("overall_score", 0) for r in results.values()) / max(len(results), 1)
+        buy_cnt   = sum(1 for r in results.values() if r.get("recommendation") in ("Strong Buy", "Buy"))
+        hold_cnt  = sum(1 for r in results.values() if r.get("recommendation") == "Hold")
+        exit_cnt  = sum(1 for r in results.values() if r.get("recommendation") in ("Reduce", "Exit"))
+
+        if avg_score >= 65:   health_col, health_label = "#1D9E75", "Good"
+        elif avg_score >= 45: health_col, health_label = "#BA7517", "Moderate"
+        else:                 health_col, health_label = "#A32D2D", "Weak"
+
+        st.markdown("**Portfolio health**")
+        st.markdown(
+            f"""<div style="display:flex;align-items:center;gap:8px;
+                border:1px solid rgba(128,128,128,0.2);border-radius:8px;
+                padding:8px 10px;margin-bottom:8px;">
+              <div style="width:10px;height:10px;border-radius:50%;
+                   background:{health_col};flex-shrink:0;"></div>
+              <div>
+                <div style="font-size:13px;font-weight:600;">
+                  {health_label} - {avg_score:.1f} / 100</div>
+                <div style="font-size:10px;color:gray;">
+                  {buy_cnt} buy · {hold_cnt} hold · {exit_cnt} reduce/exit</div>
+              </div>
+            </div>""",
+            unsafe_allow_html=True,
+        )
+
+        attention = {
+            t: r for t, r in results.items()
+            if r.get("recommendation") in ("Reduce", "Exit")
+        }
+        if attention:
+            st.markdown("**Needs attention**")
+            for ticker, r in attention.items():
+                rec   = r.get("recommendation", "Reduce")
+                short = ticker.replace(".NS", "").replace(".BO", "")
+                color = "#A32D2D" if rec == "Exit" else "#993C1D"
+                bg    = "#FCEBEB" if rec == "Exit" else "#FAECE7"
+                st.markdown(
+                    f"""<div style="display:flex;justify-content:space-between;
+                          align-items:center;background:{bg};border-radius:8px;
+                          padding:5px 10px;margin-bottom:4px;">
+                        <span style="font-size:11px;font-weight:600;color:{color};">
+                          {short}</span>
+                        <span style="font-size:10px;color:{color};
+                          background:rgba(255,255,255,0.5);
+                          padding:2px 7px;border-radius:10px;">{rec}</span>
+                      </div>""",
+                    unsafe_allow_html=True,
+                )
+
+        st.divider()
+
+        market_open   = is_market_open()
+        market_label  = "NSE open" if market_open else "NSE closed"
+        market_color  = "#1D9E75" if market_open else "#888"
+        rebal_urgency = pa.get("drift_urgency", "monitor")
+        rebal_colors  = {"immediate": "#A32D2D", "soon": "#BA7517", "monitor": "#1D9E75"}
+        rebal_color   = rebal_colors.get(rebal_urgency, "#888")
+        g2_count      = len(g2.get("new_ideas", []))
+
+        st.markdown(
+            f"""<div style="display:flex;flex-direction:column;gap:5px;
+                 font-size:11px;margin-bottom:8px;">
+              <div style="display:flex;justify-content:space-between;">
+                <span style="color:gray;">Market</span>
+                <span style="font-weight:600;color:{market_color};">
+                  <span style="width:7px;height:7px;border-radius:50%;
+                    background:{market_color};display:inline-block;margin-right:4px;">
+                  </span>{market_label}</span>
+              </div>
+              <div style="display:flex;justify-content:space-between;">
+                <span style="color:gray;">Rebalancing</span>
+                <span style="font-weight:600;color:{rebal_color};">
+                  {rebal_urgency.capitalize()}</span>
+              </div>
+              <div style="display:flex;justify-content:space-between;">
+                <span style="color:gray;">New ideas</span>
+                <span style="font-weight:600;">{g2_count} stocks</span>
+              </div>
+            </div>""",
+            unsafe_allow_html=True,
+        )
+
+    st.divider()
+    st.caption("**Portfolio Analyser v1.0**\n\nNSE / BSE · AI-powered scoring")
 
 
-# ── Main Content ──────────────────────────────────────────────────────────────
+# -- Main Content --------------------------------------------------------------
 
 config    = st.session_state["config"]
 analysis  = st.session_state.get("analysis_results")
@@ -386,23 +493,25 @@ g1_results = analysis.get("results",    {}) if analysis else {}
 g2_results = analysis.get("g2_results", {}) if analysis else {}
 g3_results = analysis.get("g3_results", {}) if analysis else {}
 
-# Change 8: tab2 renamed to "Stock Details"
 tab1, tab2 = st.tabs(["📊  Portfolio Overview", "📋  Stock Details"])
 
 with tab1:
     render_portfolio_overview(config, analysis, g2_results)
 
 with tab2:
-    # Changes 8 & 9: only stock detail selector and view here, nothing else
-    if g1_results or g2_results.get("ranked_candidates"):
+    # Stock Details tab -- holdings and discovery stocks in one selector
+    if g1_results or g2_results.get("new_ideas"):
         st.markdown("#### Stock Detail")
 
         options: dict[str, tuple] = {}
+
+        # Existing holdings
         for t, r in sorted(g1_results.items()):
             short = t.replace(".NS", "").replace(".BO", "")
             options[short] = (t, r)
 
-        for c in g2_results.get("ranked_candidates", []):
+        # Discovery stocks
+        for c in g2_results.get("new_ideas", []):
             t     = c.get("ticker", "")
             short = t.replace(".NS", "").replace(".BO", "")
             tag   = c.get("action_tag", "")
