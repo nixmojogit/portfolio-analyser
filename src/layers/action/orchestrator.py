@@ -24,13 +24,10 @@ PORTFOLIO_DB = Path("data/portfolio/portfolio.db")
 # -- Database Helpers ----------------------------------------------------------
 
 def _load_portfolio_holdings(config: dict) -> list[dict]:
-    """Load all current holdings from portfolio.db."""
     try:
         with sqlite3.connect(PORTFOLIO_DB) as conn:
             conn.row_factory = sqlite3.Row
-            rows = conn.execute(
-                "SELECT * FROM holdings ORDER BY ticker"
-            ).fetchall()
+            rows = conn.execute("SELECT * FROM holdings ORDER BY ticker").fetchall()
         return [dict(r) for r in rows]
     except Exception as e:
         log.error(f"Failed to load holdings: {e}")
@@ -38,7 +35,6 @@ def _load_portfolio_holdings(config: dict) -> list[dict]:
 
 
 def _write_score_to_db(ticker: str, result: dict) -> None:
-    """Write scorecard results to scores_history table."""
     try:
         bd = result.get("score_breakdown", {})
         with sqlite3.connect(PORTFOLIO_DB) as conn:
@@ -65,7 +61,6 @@ def _write_score_to_db(ticker: str, result: dict) -> None:
 
 
 def _write_recommendation_to_db(ticker: str, rec: dict) -> None:
-    """Write recommendation to recommendations_history table."""
     try:
         with sqlite3.connect(PORTFOLIO_DB) as conn:
             conn.execute("""
@@ -88,7 +83,6 @@ def _write_recommendation_to_db(ticker: str, rec: dict) -> None:
 
 
 def _write_g2_results_to_db(new_ideas: list[dict]) -> None:
-    """Store G2 new ideas to portfolio.db watchlist table."""
     try:
         with sqlite3.connect(PORTFOLIO_DB) as conn:
             conn.execute("DELETE FROM watchlist")
@@ -99,12 +93,13 @@ def _write_g2_results_to_db(new_ideas: list[dict]) -> None:
                     VALUES (?, ?, ?, ?, ?)
                 """, (
                     c.get("ticker"),
-                    c.get("ticker", "").split(".")[0],
+                    c.get("company_name", c.get("ticker", "").split(".")[0]),
                     c.get("sector"),
-                    c.get("overall_score"),
+                    c.get("final_score") or c.get("overall_score"),
                     json.dumps({
                         "mode":       c.get("mode", "new_idea"),
                         "action_tag": c.get("action_tag", "Initiate"),
+                        "signal":     c.get("signal", ""),
                     }),
                 ))
             conn.commit()
@@ -114,7 +109,6 @@ def _write_g2_results_to_db(new_ideas: list[dict]) -> None:
 
 
 def _write_rebalancing_to_db(plan: dict) -> None:
-    """Store G3 rebalancing plan to rebalancing_log."""
     try:
         import uuid
         plan_id = str(uuid.uuid4())[:8]
@@ -143,36 +137,19 @@ def _write_rebalancing_to_db(plan: dict) -> None:
 def _pre_run_cleanup(
     scores_history_days: int = 90,
     rebalancing_log_days: int = 365,
-) -> dict[str, int]:
-    """
-    Housekeeping tasks run at the start of every analysis run.
-    1. Resolves all previously unresolved alerts.
-    2. Purges scores_history rows older than scores_history_days.
-    3. Purges recommendations_history keeping last 10 per ticker.
-    4. Purges rebalancing_log rows older than rebalancing_log_days.
-    """
-    results = {
-        "alerts_resolved":        0,
-        "scores_purged":          0,
-        "recommendations_purged": 0,
-        "rebalancing_purged":     0,
-    }
+) -> None:
     try:
         with sqlite3.connect(PORTFOLIO_DB) as conn:
-            cursor = conn.execute("""
+            conn.execute("""
                 UPDATE alerts_log
                 SET is_resolved = 1, resolved_at = datetime('now')
                 WHERE is_resolved = 0
             """)
-            results["alerts_resolved"] = cursor.rowcount
-
-            cursor = conn.execute("""
+            conn.execute("""
                 DELETE FROM scores_history
                 WHERE score_date < date('now', ?)
             """, (f"-{scores_history_days} days",))
-            results["scores_purged"] = cursor.rowcount
-
-            cursor = conn.execute("""
+            conn.execute("""
                 DELETE FROM recommendations_history
                 WHERE rowid NOT IN (
                     SELECT rowid FROM recommendations_history
@@ -183,41 +160,25 @@ def _pre_run_cleanup(
                     )
                 )
             """)
-            results["recommendations_purged"] = cursor.rowcount
-
-            cursor = conn.execute("""
+            conn.execute("""
                 DELETE FROM rebalancing_log
                 WHERE plan_date < date('now', ?)
             """, (f"-{rebalancing_log_days} days",))
-            results["rebalancing_purged"] = cursor.rowcount
-
             conn.commit()
-        log.info(
-            f"[Cleanup] alerts={results['alerts_resolved']} resolved | "
-            f"scores={results['scores_purged']} purged | "
-            f"recs={results['recommendations_purged']} purged | "
-            f"rebal={results['rebalancing_purged']} purged"
-        )
+        log.info("[Cleanup] Pre-run cleanup complete")
     except Exception as e:
-        log.warning(f"[Cleanup] Pre-run cleanup error: {e}")
-    return results
+        log.warning(f"[Cleanup] Error: {e}")
 
 
-# -- Enriched Net Recommendation -----------------------------------------------
+# -- Fundamental Driver --------------------------------------------------------
 
 def _build_fundamental_driver(fundamental_signals: dict) -> str:
-    """
-    Identify the single most significant fundamental signal to surface.
-    Priority: red signals first (risks), then green signals (strengths).
-    Returns a plain-English string or empty string if nothing significant.
-    """
-    rev_signal  = fundamental_signals.get("revenue_signal", "amber")
-    margin_trend= fundamental_signals.get("margin_trend", "stable")
-    fcf_signal  = fundamental_signals.get("fcf_signal", "amber")
-    roic_signal = fundamental_signals.get("roic_signal", "amber")
-    prom_signal = fundamental_signals.get("promoter_signal", "amber")
+    rev_signal   = fundamental_signals.get("revenue_signal", "amber")
+    margin_trend = fundamental_signals.get("margin_trend", "stable")
+    fcf_signal   = fundamental_signals.get("fcf_signal", "amber")
+    roic_signal  = fundamental_signals.get("roic_signal", "amber")
+    prom_signal  = fundamental_signals.get("promoter_signal", "amber")
 
-    # Red signals -- surface the worst one
     if prom_signal == "red":
         return "Promoter holding is declining -- key risk to monitor."
     if fcf_signal == "red":
@@ -228,8 +189,6 @@ def _build_fundamental_driver(fundamental_signals: dict) -> str:
         return "Margins are compressing -- profitability under pressure."
     if roic_signal == "red":
         return "Returns on capital are weak -- capital efficiency concern."
-
-    # Green signals -- surface the strongest one
     if rev_signal == "green" and margin_trend == "expanding":
         return "Revenue growing strongly with expanding margins."
     if rev_signal == "green":
@@ -240,25 +199,23 @@ def _build_fundamental_driver(fundamental_signals: dict) -> str:
         return "Returns on capital are healthy."
     if fcf_signal == "green":
         return "Free cash flow is positive and growing."
-
     return ""
 
 
-def _build_sentiment_driver(sentiment_data: dict, current_price: float | None) -> str:
-    """
-    Build a one-line market view from sentiment score, label, themes,
-    analyst rating and target price.
-    """
-    sentiment_score  = sentiment_data.get("sentiment_score", 50)
-    sentiment_label  = sentiment_data.get("sentiment_label", "neutral")
-    positive_themes  = sentiment_data.get("positive_themes", [])
-    negative_themes  = sentiment_data.get("negative_themes", [])
-    analyst_rec      = sentiment_data.get("analyst_rec")
-    analyst_target   = sentiment_data.get("analyst_target")
+# -- Sentiment Driver ----------------------------------------------------------
+
+def _build_sentiment_driver(
+    sentiment_data: dict,
+    current_price: float | None,
+) -> str:
+    sentiment_score = sentiment_data.get("sentiment_score", 50)
+    positive_themes = sentiment_data.get("positive_themes", [])
+    negative_themes = sentiment_data.get("negative_themes", [])
+    analyst_rec     = sentiment_data.get("analyst_rec")
+    analyst_target  = sentiment_data.get("analyst_target")
 
     parts = []
 
-    # Sentiment signal
     if sentiment_score >= 60:
         theme = f" ({positive_themes[0]})" if positive_themes else ""
         parts.append(f"Positive news sentiment{theme}")
@@ -266,7 +223,6 @@ def _build_sentiment_driver(sentiment_data: dict, current_price: float | None) -
         theme = f" ({negative_themes[0]})" if negative_themes else ""
         parts.append(f"Negative news sentiment{theme} -- monitor closely")
 
-    # Analyst signal
     if analyst_rec:
         rec_lower = analyst_rec.lower()
         if rec_lower in ("strong_buy", "buy"):
@@ -274,7 +230,6 @@ def _build_sentiment_driver(sentiment_data: dict, current_price: float | None) -
         elif rec_lower in ("sell", "underperform", "strong_sell"):
             parts.append(f"analyst consensus is {analyst_rec.replace('_', ' ').title()} -- caution")
 
-    # Analyst target price upside
     if analyst_target and current_price and current_price > 0:
         upside = ((analyst_target - current_price) / current_price) * 100
         if upside >= 15:
@@ -284,9 +239,10 @@ def _build_sentiment_driver(sentiment_data: dict, current_price: float | None) -
 
     if not parts:
         return ""
-
     return ". ".join(p.capitalize() for p in parts) + "."
 
+
+# -- Net Recommendation --------------------------------------------------------
 
 def _compute_net_recommendation(
     stock_rec: str,
@@ -297,74 +253,64 @@ def _compute_net_recommendation(
     sentiment_data: dict | None = None,
     current_price: float | None = None,
 ) -> dict:
-    """
-    Compute net recommendation combining G1 stock score, G3 portfolio action,
-    fundamental drivers and sentiment/analyst signals.
-    Returns net_recommendation and enriched plain-English reason.
-    """
     pa = (portfolio_action or "").lower()
     sr = (stock_rec or "hold").lower()
 
-    # -- Part 1: Core action statement -----------------------------------------
     if pa == "trim":
         if sr in ("strong buy", "buy"):
-            net    = "Hold"
-            core   = (
+            net  = "Hold"
+            core = (
                 f"{sector} sector is overweight vs target. "
                 f"Stock scores well ({overall_score:.0f}/100) but portfolio "
                 f"balance requires trimming. Hold rather than add."
             )
         elif sr == "hold":
-            net    = "Reduce"
-            core   = (
+            net  = "Reduce"
+            core = (
                 f"{sector} sector is overweight vs target. "
                 f"Combined with neutral stock score ({overall_score:.0f}/100), "
                 f"reduce position to rebalance portfolio."
             )
         else:
-            net    = sr.title()
-            core   = (
+            net  = sr.title()
+            core = (
                 f"Both stock quality ({sr.title()}) and portfolio balance "
                 f"(sector overweight) signal reducing this position."
             )
-
     elif pa in ("initiate", "add"):
         if sr in ("strong buy", "buy"):
-            net    = "Strong Buy"
-            core   = (
+            net  = "Strong Buy"
+            core = (
                 f"Strong stock score ({overall_score:.0f}/100) aligns with "
                 f"portfolio need -- {sector} sector is underweight vs target."
             )
         elif sr == "hold":
-            net    = "Buy"
-            core   = (
+            net  = "Buy"
+            core = (
                 f"Portfolio needs {sector} exposure (underweight). "
                 f"Stock scores adequately ({overall_score:.0f}/100) -- "
                 f"consider adding to this position."
             )
         else:
-            net    = "Hold"
-            core   = (
+            net  = "Hold"
+            core = (
                 f"Portfolio needs {sector} exposure but stock quality "
                 f"({overall_score:.0f}/100) is weak. "
                 f"Seek a better-scoring alternative in this sector."
             )
-
     elif pa == "distribute":
-        net    = sr.title()
-        core   = (
+        net  = sr.title()
+        core = (
             f"Consider distributing {sector} allocation -- "
             f"a peer stock scores similarly. "
             f"Stock score: {overall_score:.0f}/100."
         )
-
     elif pa == "switch":
-        net    = "Reduce"
-        core   = (
+        net  = "Reduce"
+        core = (
             f"A peer in {sector} scores significantly higher. "
             f"Consider switching from this stock to the recommended peer."
         )
-
     else:
         net = sr.title()
         if sr in ("strong buy", "buy"):
@@ -383,39 +329,24 @@ def _compute_net_recommendation(
                 f"Consider reducing or exiting this position."
             )
 
-    # -- Part 2: Fundamental driver --------------------------------------------
-    fund_driver = ""
-    if fundamental_signals:
-        fund_driver = _build_fundamental_driver(fundamental_signals)
+    fund_driver      = _build_fundamental_driver(fundamental_signals) if fundamental_signals else ""
+    sentiment_driver = _build_sentiment_driver(sentiment_data, current_price) if sentiment_data else ""
 
-    # -- Part 3: Sentiment & analyst signal ------------------------------------
-    sentiment_driver = ""
-    if sentiment_data:
-        sentiment_driver = _build_sentiment_driver(sentiment_data, current_price)
-
-    # -- Assemble full reason --------------------------------------------------
     reason_parts = [core]
     if fund_driver:
         reason_parts.append(f"Fundamentals: {fund_driver}")
     if sentiment_driver:
         reason_parts.append(f"Market view: {sentiment_driver}")
 
-    reason = " | ".join(reason_parts)
-
-    return {"net_recommendation": net, "reason": reason}
+    return {"net_recommendation": net, "reason": " | ".join(reason_parts)}
 
 
-# -- SKILL-A10: Integrated Workflow (G1 -> G2 -> G3) --------------------------
+# -- SKILL-A10: Integrated Workflow --------------------------------------------
 
 def run_g1_workflow(
     config: dict,
     tickers: list[str] | None = None,
 ) -> dict[str, Any]:
-    """
-    SKILL-A10: Orchestrate Integrated Analysis -- G1 -> G2 -> G3.
-    All three goals run as one cohesive block. Data fetched once
-    and shared. Results flow: G1 -> G2 -> G3.
-    """
     from src.layers.data.price_module import (
         fetch_historical_price_data,
         fetch_realtime_price_snapshot,
@@ -445,8 +376,7 @@ def run_g1_workflow(
     )
     from src.layers.intelligence.sentiment_module import (
         score_news_sentiment, compute_insider_activity_signal,
-        compute_institutional_ownership_change,
-        resolve_analyst_data,
+        compute_institutional_ownership_change, resolve_analyst_data,
     )
     from src.layers.intelligence.risk_module import compute_stop_loss_proximity
     from src.layers.intelligence.scorecard_aggregator import (
@@ -483,12 +413,12 @@ def run_g1_workflow(
     if tickers:
         holdings = [h for h in holdings if h["ticker"] in tickers]
 
-    # Pre-run cleanup
     log.info("[INTEGRATED] Pre-run cleanup ...")
     _pre_run_cleanup()
 
-    # -- Shared Data Fetch -----------------------------------------------------
+    # -- Phase 1: Shared Data Fetch --------------------------------------------
     log.info("[INTEGRATED] Phase 1: Shared data fetch ...")
+
     index_data = fetch_index_and_sector_data(config=config)
     nifty_df   = index_data["index_data"].get("^NSEI")
 
@@ -502,7 +432,23 @@ def run_g1_workflow(
         for h in holdings
     )
 
-    # -- G1: Score Existing Holdings -------------------------------------------
+    current_prices = {
+        h["ticker"]: (snapshots.get(h["ticker"], {}).get("current_price") or 0)
+        for h in holdings
+    }
+
+    # Fetch price data for all holdings -- shared by G2 (correlation) and G3
+    price_data: dict = {}
+    for h in holdings:
+        pr = fetch_historical_price_data(h["ticker"], period="1y", config=config)
+        if not pr["price_df"].empty:
+            price_data[h["ticker"]] = pr["price_df"]
+
+    # Compute sector allocation and drift -- shared by G2 (Mode A) and G3
+    shared_alloc = compute_sector_allocation(holdings, current_prices, config)
+    sector_drift = shared_alloc.get("sector_drift", {})
+
+    # -- Phase 2: G1 Scoring ---------------------------------------------------
     log.info("[INTEGRATED] Phase 2: G1 -- Scoring existing holdings ...")
 
     g1_results:         dict = {}
@@ -679,7 +625,6 @@ def run_g1_workflow(
                 },
                 "news_headlines":    news["headlines"][:5],
                 "run_timestamp":     datetime.now().isoformat(),
-                # Store raw signals for net recommendation enrichment
                 "_fundamental_signals": {
                     "revenue_signal":  rev["revenue_signal"],
                     "margin_trend":    mar["margin_trend"],
@@ -721,7 +666,6 @@ def run_g1_workflow(
             log.error(f"[G1] Failed for {ticker}: {e}")
             errors[ticker] = str(e)
 
-    # G1 alerts
     sl_check     = detect_stop_loss_breach(sl_signals)
     thesis_check = detect_thesis_integrity_change(
         fundamental_scores, thesis_flags, revenue_signals, fcf_signals
@@ -733,68 +677,67 @@ def run_g1_workflow(
         f"{len(errors)} errors, {len(all_alerts)} alerts"
     )
 
-    # -- G2: New Idea Discovery ------------------------------------------------
-    log.info("[INTEGRATED] Phase 3: G2 - New idea discovery ...")
+    # -- Phase 3: G2 Discovery -------------------------------------------------
+    log.info("[INTEGRATED] Phase 3: G2 - New idea discovery (three modes) ...")
 
-    g2_results = {"new_ideas": [], "ranked_candidates": [], "top_recommendations": []}
+    g2_results = {
+        "mode_a": [], "mode_b": [], "mode_c": [],
+        "new_ideas": [], "ranked_candidates": [], "top_recommendations": [],
+    }
 
     try:
         from src.layers.data.cache_manager import cache_read, cache_write
         from src.layers.action.discovery_engine import screen_new_ideas
 
-        g2_cache_key = "g2_new_ideas_results"
+        g2_cache_key = "g2_new_ideas_results_v2"
         g2_cached    = cache_read("SKILL-A11", g2_cache_key, ttl_hours=168)
         if g2_cached["cache_hit"]:
             log.info("[G2] Serving cached new ideas (within 7 days)")
             g2_results = g2_cached["cached_data"]
         else:
-            g2_results = screen_new_ideas(holdings, config)
+            g2_results = screen_new_ideas(
+                holdings    = holdings,
+                g1_results  = g1_results,
+                price_data  = price_data,
+                sector_drift= sector_drift,
+                config      = config,
+            )
             cache_write("SKILL-A11", g2_cache_key, g2_results)
             log.info("[G2] Results cached for 7 days")
             _write_g2_results_to_db(g2_results.get("new_ideas", []))
 
         log.info(
-            f"[G2] Complete: {len(g2_results.get('new_ideas', []))} new ideas | "
-            f"evaluated {g2_results.get('total_candidates', 0)} candidates"
+            f"[G2] Complete: Mode A={len(g2_results.get('mode_a', []))} | "
+            f"Mode B={len(g2_results.get('mode_b', []))} | "
+            f"Mode C={len(g2_results.get('mode_c', []))}"
         )
 
     except Exception as e:
         log.error(f"[G2] Workflow error: {e}")
         errors["g2"] = str(e)
 
-    # -- G3: Portfolio Optimisation --------------------------------------------
+    # -- Phase 4: G3 Optimisation ----------------------------------------------
     log.info("[INTEGRATED] Phase 4: G3 -- Portfolio optimisation ...")
 
     g3_results = {"rebalancing_plan": [], "portfolio_analytics": {}}
 
     try:
-        current_prices = {
-            h["ticker"]: (snapshots.get(h["ticker"], {}).get("current_price") or 0)
-            for h in holdings
-        }
-
-        price_data = {}
-        for h in holdings:
-            pr = fetch_historical_price_data(h["ticker"], period="1y", config=config)
-            if not pr["price_df"].empty:
-                price_data[h["ticker"]] = pr["price_df"]
-
         corr   = compute_correlation_matrix(price_data)
-        alloc  = compute_sector_allocation(holdings, current_prices, config)
         betas  = {
             t: g1_results[t]["metrics"].get("beta")
             for t in g1_results if g1_results[t]["metrics"].get("beta")
         }
         p_beta = compute_portfolio_beta(holdings, betas, current_prices)
 
-        drift_result = detect_sector_allocation_drift(
-            alloc.get("sector_drift", {}), config
-        )
+        drift_result = detect_sector_allocation_drift(sector_drift, config)
+
+        # Auto-select best candidate from G2 for each underweight sector
+        best_g2_candidates = _select_g2_for_rebalancing(g2_results, config)
 
         rebal = generate_rebalancing_plan(
             drift_result.get("sectors_to_trim", []),
             drift_result.get("sectors_to_add", []),
-            g2_results.get("new_ideas", []),
+            best_g2_candidates,
             holdings,
             current_prices,
             p_beta.get("portfolio_beta", 1.0),
@@ -806,11 +749,11 @@ def run_g1_workflow(
             "rebalancing_plan":      rebal.get("rebalancing_plan", []),
             "estimated_beta_after":  rebal.get("estimated_beta_after"),
             "portfolio_analytics": {
-                "sector_allocation":   alloc.get("sector_allocation", {}),
-                "target_allocation":   alloc.get("target_allocation", {}),
-                "sector_drift":        alloc.get("sector_drift", {}),
-                "overweight_sectors":  alloc.get("overweight_sectors", []),
-                "underweight_sectors": alloc.get("underweight_sectors", []),
+                "sector_allocation":   shared_alloc.get("sector_allocation", {}),
+                "target_allocation":   shared_alloc.get("target_allocation", {}),
+                "sector_drift":        sector_drift,
+                "overweight_sectors":  shared_alloc.get("overweight_sectors", []),
+                "underweight_sectors": shared_alloc.get("underweight_sectors", []),
                 "portfolio_beta":      p_beta.get("portfolio_beta"),
                 "beta_signal":         p_beta.get("beta_signal"),
                 "high_corr_pairs":     corr.get("high_correlation_pairs", []),
@@ -821,13 +764,12 @@ def run_g1_workflow(
 
         _write_rebalancing_to_db(g3_results)
 
-        # Enrich G1 results with G3 portfolio actions and enriched reasons
+        # Enrich G1 results with portfolio actions and net recommendations
         rebal_plan    = g3_results.get("rebalancing_plan", [])
         ticker_action = {
             r.get("ticker"): r.get("action", "").title()
             for r in rebal_plan if r.get("ticker")
         }
-        sector_drift = g3_results.get("portfolio_analytics", {}).get("sector_drift", {})
 
         for ticker, result in g1_results.items():
             sector = result.get("sector", "")
@@ -844,7 +786,6 @@ def run_g1_workflow(
                 else:
                     pa = None
 
-            # Enriched net recommendation with fundamental + sentiment drivers
             net = _compute_net_recommendation(
                 stock_rec           = result.get("recommendation", "Hold"),
                 portfolio_action    = pa,
@@ -877,15 +818,13 @@ def run_g1_workflow(
             })
 
         log.info(
-            f"[G3] Complete: {len(rebal.get('rebalancing_plan', []))} "
-            f"rebalancing actions"
+            f"[G3] Complete: {len(rebal.get('rebalancing_plan', []))} actions"
         )
 
     except Exception as e:
         log.error(f"[G3] Workflow error: {e}")
         errors["g3"] = str(e)
 
-    # -- Store all alerts ------------------------------------------------------
     if all_alerts:
         stored = store_alerts_batch(all_alerts)
         log.info(f"[INTEGRATED] {stored} alerts stored")
@@ -893,9 +832,9 @@ def run_g1_workflow(
     run_time = (datetime.now() - start_time).seconds
     log.info(
         f"[INTEGRATED] Analysis complete in {run_time}s | "
-        f"G1: {len(g1_results)} stocks | "
-        f"G2: {len(g2_results.get('new_ideas', []))} ideas | "
-        f"G3: {len(g3_results.get('rebalancing_plan', []))} actions | "
+        f"G1: {len(g1_results)} | "
+        f"G2: {len(g2_results.get('new_ideas', []))} | "
+        f"G3: {len(g3_results.get('rebalancing_plan', []))} | "
         f"Errors: {len(errors)}"
     )
     log.info("=" * 60)
@@ -908,6 +847,35 @@ def run_g1_workflow(
         "errors":        errors,
         "alerts":        all_alerts,
     }
+
+
+# -- G2 -> G3 Auto-Selection ---------------------------------------------------
+
+def _select_g2_for_rebalancing(
+    g2_results: dict,
+    config: dict | None = None,
+) -> list[dict]:
+    """
+    Auto-select the best G2 candidate per underweight sector for G3 rebalancing.
+    Priority: Mode A (gap fill) first, then Mode B (switch/distribute).
+    Returns a combined list compatible with generate_rebalancing_plan().
+    """
+    selected: dict[str, dict] = {}   # sector -> best candidate
+
+    # Mode A -- gap fill candidates (already sector-specific)
+    for c in g2_results.get("mode_a", []):
+        sector = c.get("sector", "")
+        if sector not in selected:
+            selected[sector] = c
+
+    # Mode B -- switch candidates for sectors not already covered
+    for c in g2_results.get("mode_b", []):
+        if c.get("action_tag") == "Switch":
+            sector = c.get("sector", "")
+            if sector not in selected:
+                selected[sector] = c
+
+    return list(selected.values())
 
 
 # -- Legacy stubs --------------------------------------------------------------

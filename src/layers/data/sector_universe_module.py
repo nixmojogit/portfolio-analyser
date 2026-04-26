@@ -3,8 +3,8 @@ sector_universe_module.py
 Layer      : Data
 Owns       : SKILL-D15
 Description: Fetches Nifty sector index constituents from niftyindices.com
-             official CSV files. Returns NSE ticker symbols for each sector.
-             Used by G2 discovery to build a dynamic stock universe.
+             official CSV files. Returns NSE ticker symbols and company names
+             for each sector. Used by G2 discovery to build a dynamic universe.
              Cache TTL: 168 hours (7 days).
 """
 
@@ -34,7 +34,7 @@ HEADERS = {
     "Referer":  "https://www.niftyindices.com/indices/equity/sectoral-indices",
 }
 
-# Sector → niftyindices.com CSV filename
+# Sector -> niftyindices.com CSV filename
 SECTOR_CSV_MAP: dict[str, str] = {
     "Technology":         "ind_niftyitlist.csv",
     "Financial Services": "ind_niftyfinancelist.csv",
@@ -53,18 +53,18 @@ SECTOR_CSV_MAP: dict[str, str] = {
 def fetch_sector_constituents(
     sector: str,
     config: dict | None = None,
-) -> list[str]:
+) -> list[dict]:
     """
     SKILL-D15: Fetch Nifty sector index constituents from niftyindices.com.
-    Returns list of NSE tickers with .NS suffix e.g. ['TCS.NS', 'INFY.NS'].
-    Returns empty list on failure — caller handles gracefully.
+    Returns list of dicts with keys: ticker (NSE .NS suffix), company_name.
+    Returns empty list on failure.
     """
     ttl       = get_skill_ttl(config, SKILL_ID) if config else 168
     cache_key = f"sector_universe_{sector.lower().replace(' ', '_')}"
 
     cached = cache_read(SKILL_ID, cache_key, ttl_hours=ttl)
     if cached["cache_hit"]:
-        return cached["cached_data"].get("tickers", [])
+        return cached["cached_data"].get("constituents", [])
 
     csv_file = SECTOR_CSV_MAP.get(sector)
     if not csv_file:
@@ -81,23 +81,35 @@ def fetch_sector_constituents(
         df = pd.read_csv(io.StringIO(resp.text))
         df.columns = df.columns.str.strip()
 
-        # Symbol column may be named 'Symbol' or 'SYMBOL'
+        # Symbol column
         sym_col = next(
             (c for c in df.columns if c.strip().upper() == "SYMBOL"), None
         )
+        # Company name column
+        name_col = next(
+            (c for c in df.columns
+             if c.strip().upper() in ("COMPANY NAME", "COMPANYNAME", "NAME")),
+            None
+        )
+
         if sym_col is None:
-            log.warning(f"[{SKILL_ID}] Symbol column not found in CSV for {sector}")
+            log.warning(f"[{SKILL_ID}] Symbol column not found for {sector}")
             return []
 
-        tickers = [
-            f"{sym.strip()}.NS"
-            for sym in df[sym_col].dropna().tolist()
-            if isinstance(sym, str) and sym.strip()
-        ]
+        constituents = []
+        for _, row in df.iterrows():
+            sym = str(row[sym_col]).strip() if pd.notna(row[sym_col]) else ""
+            if not sym:
+                continue
+            name = str(row[name_col]).strip() if name_col and pd.notna(row[name_col]) else sym
+            constituents.append({
+                "ticker":       f"{sym}.NS",
+                "company_name": name,
+            })
 
-        log.info(f"[{SKILL_ID}] {sector}: {len(tickers)} constituents fetched")
-        cache_write(SKILL_ID, cache_key, {"tickers": tickers})
-        return tickers
+        log.info(f"[{SKILL_ID}] {sector}: {len(constituents)} constituents fetched")
+        cache_write(SKILL_ID, cache_key, {"constituents": constituents})
+        return constituents
 
     except Exception as e:
         log.warning(f"[{SKILL_ID}] Failed fetching {sector}: {e}")
@@ -107,16 +119,23 @@ def fetch_sector_constituents(
 def fetch_all_sector_constituents(
     sectors: list[str],
     config: dict | None = None,
-) -> dict[str, list[str]]:
+) -> dict[str, list[dict]]:
     """
     Fetch constituents for multiple sectors.
-    Returns dict of sector -> list of NSE tickers.
+    Returns dict of sector -> list of {ticker, company_name} dicts.
+    Deduplicates across sectors by ticker.
     """
-    result: dict[str, list[str]] = {}
+    result:    dict[str, list[dict]] = {}
+    seen_tickers: set = set()
+
     for sector in sectors:
-        tickers = fetch_sector_constituents(sector, config)
-        if tickers:
-            result[sector] = tickers
-        else:
-            log.debug(f"[{SKILL_ID}] No tickers returned for {sector}")
+        constituents = fetch_sector_constituents(sector, config)
+        unique = []
+        for c in constituents:
+            if c["ticker"] not in seen_tickers:
+                seen_tickers.add(c["ticker"])
+                unique.append(c)
+        if unique:
+            result[sector] = unique
+
     return result

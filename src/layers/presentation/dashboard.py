@@ -75,11 +75,13 @@ def render_portfolio_overview(
     _render_holdings_table(results)
     st.divider()
 
-    # Change 7: New Ideas replaces Rebalancing Actions
-    new_ideas = g2.get("new_ideas", [])
-    if new_ideas:
+    # New Ideas -- three mode sections
+    has_new_ideas = any([
+        g2.get("mode_a"), g2.get("mode_b"), g2.get("mode_c")
+    ])
+    if has_new_ideas:
         st.markdown("#### New Ideas")
-        _render_new_ideas(new_ideas)
+        _render_new_ideas(g2)
         st.divider()
 
     st.markdown("#### Recommendation Summary")
