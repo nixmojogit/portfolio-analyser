@@ -139,6 +139,12 @@ def _holdings_count() -> int:
 
 def _run_portfolio_import(uploaded_file, config: dict) -> None:
     from src.layers.data.fundamentals_module import import_portfolio_from_excel
+
+    # Permanent loop guard — unique key per file based on name + size
+    file_key = f"{uploaded_file.name}_{uploaded_file.size}"
+    if st.session_state.get("_last_import_key") == file_key:
+        return   # already imported this file in this session — skip silently
+
     INPUT_DIR.mkdir(parents=True, exist_ok=True)
     save_path = INPUT_DIR / "portfolio.xlsx"
     with open(save_path, "wb") as f:
@@ -149,10 +155,12 @@ def _run_portfolio_import(uploaded_file, config: dict) -> None:
     errors = result.get("validation_errors", [])
     df     = result.get("holdings_df")
     if status == "success":
+        st.session_state["_last_import_key"] = file_key   # record before rerun
         st.success(f"✅ {len(df)} holding(s) imported successfully.")
         st.session_state["analysis_results"] = None
         st.rerun()
     elif status == "partial":
+        st.session_state["_last_import_key"] = file_key
         st.warning(f"⚠️ {len(df)} holding(s) imported with warnings.")
         for e in errors: st.caption(f"• {e}")
         st.session_state["analysis_results"] = None
