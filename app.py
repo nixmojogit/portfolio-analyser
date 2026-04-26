@@ -18,7 +18,6 @@ from src.layers.presentation.dashboard import render_portfolio_overview, render_
 from src.layers.presentation.stock_detail_view import render_stock_detail_view
 from src.layers.presentation.portfolio_view import render_opportunities_view
 from src.utils.logger import setup_root_logger
-from src.utils.helpers import is_market_open
 
 # -- App Config ----------------------------------------------------------------
 
@@ -228,27 +227,27 @@ def _build_discovery_stock_data(candidate: dict) -> dict:
         "fundamental_score": {
             "fundamental_score": f_score,
             "fundamental_grade": candidate.get("fundamental_grade", "-"),
-            "fundamental_breakdown": {},
+            "fundamental_breakdown": candidate.get("fundamental_breakdown", {}),
         },
         "technical_score": {
             "technical_score": t_score,
             "technical_grade": candidate.get("technical_grade", "-"),
-            "technical_breakdown": {},
+            "technical_breakdown": candidate.get("technical_breakdown", {}),
         },
         "valuation_score": {
             "valuation_score": v_score,
             "valuation_grade": candidate.get("valuation_grade", "-"),
-            "valuation_breakdown": {},
+            "valuation_breakdown": candidate.get("valuation_breakdown", {}),
         },
         "risk_score": {
             "risk_score": r_score,
             "risk_grade": candidate.get("risk_grade", "-"),
-            "risk_breakdown": {},
+            "risk_breakdown": candidate.get("risk_breakdown", {}),
         },
         "sentiment_score": {
             "sentiment_scorecard_score": s_score,
             "sentiment_grade": candidate.get("sentiment_grade", "-"),
-            "sentiment_breakdown": {},
+            "sentiment_breakdown": candidate.get("sentiment_breakdown", {}),
         },
         "stop_loss": {
             "stop_loss_price": None, "stop_loss_method": "-",
@@ -386,98 +385,6 @@ with st.sidebar:
 
     if analysis and st.session_state.get("_from_disk"):
         st.caption("📂 Displaying saved results - click Run to refresh.")
-
-    st.divider()
-
-    # Sidebar portfolio health & status
-    if analysis and analysis.get("results"):
-        results = analysis["results"]
-        g2      = analysis.get("g2_results", {})
-        g3      = analysis.get("g3_results", {})
-        pa      = g3.get("portfolio_analytics", {})
-
-        avg_score = sum(r.get("overall_score", 0) for r in results.values()) / max(len(results), 1)
-        buy_cnt   = sum(1 for r in results.values() if r.get("recommendation") in ("Strong Buy", "Buy"))
-        hold_cnt  = sum(1 for r in results.values() if r.get("recommendation") == "Hold")
-        exit_cnt  = sum(1 for r in results.values() if r.get("recommendation") in ("Reduce", "Exit"))
-
-        if avg_score >= 65:   health_col, health_label = "#1D9E75", "Good"
-        elif avg_score >= 45: health_col, health_label = "#BA7517", "Moderate"
-        else:                 health_col, health_label = "#A32D2D", "Weak"
-
-        st.markdown("**Portfolio health**")
-        st.markdown(
-            f"""<div style="display:flex;align-items:center;gap:8px;
-                border:1px solid rgba(128,128,128,0.2);border-radius:8px;
-                padding:8px 10px;margin-bottom:8px;">
-              <div style="width:10px;height:10px;border-radius:50%;
-                   background:{health_col};flex-shrink:0;"></div>
-              <div>
-                <div style="font-size:13px;font-weight:600;">
-                  {health_label} - {avg_score:.1f} / 100</div>
-                <div style="font-size:10px;color:gray;">
-                  {buy_cnt} buy · {hold_cnt} hold · {exit_cnt} reduce/exit</div>
-              </div>
-            </div>""",
-            unsafe_allow_html=True,
-        )
-
-        attention = {
-            t: r for t, r in results.items()
-            if r.get("recommendation") in ("Reduce", "Exit")
-        }
-        if attention:
-            st.markdown("**Needs attention**")
-            for ticker, r in attention.items():
-                rec   = r.get("recommendation", "Reduce")
-                short = ticker.replace(".NS", "").replace(".BO", "")
-                color = "#A32D2D" if rec == "Exit" else "#993C1D"
-                bg    = "#FCEBEB" if rec == "Exit" else "#FAECE7"
-                st.markdown(
-                    f"""<div style="display:flex;justify-content:space-between;
-                          align-items:center;background:{bg};border-radius:8px;
-                          padding:5px 10px;margin-bottom:4px;">
-                        <span style="font-size:11px;font-weight:600;color:{color};">
-                          {short}</span>
-                        <span style="font-size:10px;color:{color};
-                          background:rgba(255,255,255,0.5);
-                          padding:2px 7px;border-radius:10px;">{rec}</span>
-                      </div>""",
-                    unsafe_allow_html=True,
-                )
-
-        st.divider()
-
-        market_open   = is_market_open()
-        market_label  = "NSE open" if market_open else "NSE closed"
-        market_color  = "#1D9E75" if market_open else "#888"
-        rebal_urgency = pa.get("drift_urgency", "monitor")
-        rebal_colors  = {"immediate": "#A32D2D", "soon": "#BA7517", "monitor": "#1D9E75"}
-        rebal_color   = rebal_colors.get(rebal_urgency, "#888")
-        g2_count      = len(g2.get("new_ideas", []))
-
-        st.markdown(
-            f"""<div style="display:flex;flex-direction:column;gap:5px;
-                 font-size:11px;margin-bottom:8px;">
-              <div style="display:flex;justify-content:space-between;">
-                <span style="color:gray;">Market</span>
-                <span style="font-weight:600;color:{market_color};">
-                  <span style="width:7px;height:7px;border-radius:50%;
-                    background:{market_color};display:inline-block;margin-right:4px;">
-                  </span>{market_label}</span>
-              </div>
-              <div style="display:flex;justify-content:space-between;">
-                <span style="color:gray;">Rebalancing</span>
-                <span style="font-weight:600;color:{rebal_color};">
-                  {rebal_urgency.capitalize()}</span>
-              </div>
-              <div style="display:flex;justify-content:space-between;">
-                <span style="color:gray;">New ideas</span>
-                <span style="font-weight:600;">{g2_count} stocks</span>
-              </div>
-            </div>""",
-            unsafe_allow_html=True,
-        )
 
     st.divider()
     st.caption("**Portfolio Analyser v1.0**\n\nNSE / BSE · AI-powered scoring")

@@ -1,0 +1,19 @@
+app_name: Portfolio Analyser
+log_level: INFO
+db_path: data/cache/market_data.db
+portfolio_db_path: data/portfolio/portfolio.db
+export_path: data/exports/
+market: NSE
+benchmark_index: ^NSEI
+risk_free_rate: 0.065
+default_exchange_suffix: NS
+scraper_request_delay_seconds: 2.5
+max_retries: 3
+retry_backoff_base_seconds: 2
+atr_period: 14
+atr_multiplier: 2.0
+stop_loss_warning_proximity_pct: 3
+news_sentiment_lookback_days: 30
+analyst_signal_lookback_days: 90
+announcements_lookback_days: 30
+insider_lookback_days: 90

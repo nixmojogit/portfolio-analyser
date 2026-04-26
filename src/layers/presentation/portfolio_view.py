@@ -1,10 +1,9 @@
 """
 portfolio_view.py
 Layer      : Presentation
-Owns       : SKILL-P04
-Description: Renders G3 portfolio optimisation view — sector allocation,
-             correlation heatmap, portfolio risk metrics, rebalancing plan.
-             Also renders G2 discovery candidates view.
+Owns       : SKILL-P03, SKILL-P04
+Description: Renders the New Opportunities tab — combines portfolio
+             rebalancing (G3) and stock discovery (G2) into one cohesive view.
 """
 
 from __future__ import annotations
@@ -16,244 +15,225 @@ from src.utils.logger import get_logger
 
 log = get_logger(__name__)
 
-URGENCY_COLOUR = {
-    "immediate": "🔴",
-    "soon":      "🟠",
-    "monitor":   "🟢",
+URGENCY_COLOUR = {"immediate": "🔴", "soon": "🟠", "monitor": "🟢"}
+ACTION_COLOUR  = {"trim": "🟠", "initiate": "🟢", "switch": "🔵",
+                  "distribute": "🟡", "add": "➕"}
+TAG_EMOJI      = {"Initiate": "🟢", "Switch": "🔵", "Distribute": "🟡"}
+GRADE_EMOJI    = {
+    "Strong": "🟢", "Moderate": "🟡", "Weak": "🔴",
+    "Bullish": "🟢", "Neutral": "🟡", "Bearish": "🔴",
+    "Undervalued": "🟢", "Fair": "🟡", "Overvalued": "🔴",
+    "Low": "🟢", "High": "🔴",
+    "Positive": "🟢", "Mixed": "🟡", "Negative": "🔴",
 }
 
-ACTION_COLOUR = {
-    "trim":       "🟠",
-    "initiate":   "🟢",
-    "switch":     "🔵",
-    "distribute": "🟡",
-}
 
+# ── Combined Opportunities View ───────────────────────────────────────────────
 
-# ── SKILL-P04: Portfolio Optimisation View ────────────────────────────────────
-
-def render_portfolio_optimisation_view(g3_results: dict) -> None:
+def render_opportunities_view(
+    g2_results: dict,
+    g3_results: dict,
+    config: dict | None = None,
+) -> None:
     """
-    SKILL-P04: Render G3 Portfolio Optimisation View.
-    Shows sector allocation, correlation, risk metrics and rebalancing plan.
+    Combined New Opportunities tab.
+    Section 1 — Portfolio Rebalancing  (G3)
+    Section 2 — Stock Discovery        (G2)
     """
-    st.title("⚖️ Portfolio Optimisation (G3)")
-
-    if not g3_results:
-        st.info("Run Analysis first to see portfolio optimisation.")
+    if not g2_results and not g3_results:
+        st.info("Run Portfolio Analysis to see opportunities and rebalancing actions.")
         return
 
-    pa   = g3_results.get("portfolio_analytics", {})
-    plan = g3_results.get("rebalancing_plan", [])
+    pa = g3_results.get("portfolio_analytics", {}) if g3_results else {}
 
-    # ── Portfolio Risk Summary ────────────────────────────────────────────────
-    st.subheader("📊 Portfolio Risk Metrics")
-    _render_risk_metrics(pa)
+    # ── Section 1: Portfolio Rebalancing ──────────────────────────────────────
+    st.markdown("#### Portfolio Rebalancing")
+    _render_rebalancing_section(g3_results, pa)
+
     st.divider()
 
-    # ── Sector Allocation ─────────────────────────────────────────────────────
-    st.subheader("🏢 Sector Allocation")
-    _render_sector_allocation(pa)
-    st.divider()
-
-    # ── Correlation ───────────────────────────────────────────────────────────
-    high_corr = pa.get("high_corr_pairs", [])
-    avg_corr  = pa.get("avg_correlation")
-    st.subheader("🔗 Correlation Analysis")
-    _render_correlation_section(high_corr, avg_corr)
-    st.divider()
-
-    # ── Rebalancing Plan ──────────────────────────────────────────────────────
-    st.subheader("📋 Rebalancing Plan")
-    _render_rebalancing_plan(plan)
+    # ── Section 2: Stock Discovery ────────────────────────────────────────────
+    st.markdown("#### Stock Discovery")
+    _render_discovery_section(g2_results)
 
 
-def _render_risk_metrics(pa: dict) -> None:
-    """Render portfolio-level risk metrics in a metric bar."""
+# ── Rebalancing Section ───────────────────────────────────────────────────────
+
+def _render_rebalancing_section(g3_results: dict, pa: dict) -> None:
+    """Compact rebalancing view: risk metrics + sector allocation + actions."""
+    if not pa and not g3_results:
+        st.info("No rebalancing data available.")
+        return
+
+    # Risk metrics strip
+    _render_risk_strip(pa)
+
+    col_left, col_right = st.columns([1, 1])
+
+    with col_left:
+        st.markdown("**Sector Allocation**")
+        _render_sector_table(pa)
+
+    with col_right:
+        st.markdown("**Correlation**")
+        _render_correlation_compact(pa)
+
+    # Rebalancing actions
+    plan = g3_results.get("rebalancing_plan", []) if g3_results else []
+    if plan:
+        st.markdown("**Rebalancing Actions**")
+        _render_rebalancing_actions(plan)
+    else:
+        st.success("✅ No rebalancing actions required — portfolio allocation is on target.")
+
+
+def _render_risk_strip(pa: dict) -> None:
+    """4-metric compact strip for portfolio risk."""
     beta        = pa.get("portfolio_beta")
-    beta_signal = pa.get("beta_signal", "—")
+    beta_signal = pa.get("beta_signal", "")
     urgency     = pa.get("drift_urgency", "monitor")
     avg_corr    = pa.get("avg_correlation")
     over        = pa.get("overweight_sectors", [])
     under       = pa.get("underweight_sectors", [])
 
-    col1, col2, col3, col4 = st.columns(4)
+    beta_emoji = {"defensive": "🛡️", "market_neutral": "⚖️",
+                  "aggressive": "🚀"}.get(beta_signal, "⚖️")
+    urg_emoji  = URGENCY_COLOUR.get(urgency, "⚪")
 
-    beta_emoji = {"defensive": "🛡️", "market_neutral": "⚖️", "aggressive": "🚀"}.get(
-        beta_signal, "⚖️"
-    )
-    col1.metric(
-        "Portfolio Beta",
-        f"{beta:.2f}" if beta else "N/A",
-        f"{beta_emoji} {beta_signal.replace('_', ' ').title()}" if beta_signal else "",
-    )
-
-    urg_emoji = URGENCY_COLOUR.get(urgency, "⚪")
-    col2.metric(
-        "Rebalancing Urgency",
-        f"{urg_emoji} {urgency.capitalize()}",
-    )
-
-    col3.metric(
-        "Avg Correlation",
-        f"{avg_corr:.2f}" if avg_corr else "N/A",
-        "Low = well diversified" if avg_corr and avg_corr < 0.5 else "High = concentrated",
-    )
-
-    col4.metric(
-        "Sector Imbalance",
-        f"{len(over)} over / {len(under)} under",
-        f"Overweight: {', '.join(over[:2]) if over else 'None'}",
-    )
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("Portfolio Beta",
+              f"{beta:.2f}" if beta else "N/A",
+              f"{beta_emoji} {beta_signal.replace('_', ' ').title()}" if beta else "")
+    c2.metric("Rebalancing",
+              f"{urg_emoji} {urgency.capitalize()}")
+    c3.metric("Avg Correlation",
+              f"{avg_corr:.2f}" if avg_corr else "N/A",
+              "Well diversified" if avg_corr and avg_corr < 0.5 else
+              ("Moderate" if avg_corr and avg_corr < 0.7 else "Concentrated"))
+    c4.metric("Sector Imbalance",
+              f"{len(over)} over / {len(under)} under",
+              f"▲ {', '.join(over[:2])}" if over else "On target")
 
 
-def _render_sector_allocation(pa: dict) -> None:
-    """Render current vs target sector allocation as a comparison table."""
+def _render_sector_table(pa: dict) -> None:
+    """Current vs target sector allocation table."""
     current = pa.get("sector_allocation", {})
-    target  = pa.get("target_allocation", {})
-    drift   = pa.get("sector_drift", {})
+    target  = pa.get("target_allocation",  {})
+    drift   = pa.get("sector_drift",       {})
     over    = pa.get("overweight_sectors", [])
     under   = pa.get("underweight_sectors", [])
 
     if not current:
-        st.info("No sector allocation data available.")
+        st.caption("No allocation data yet.")
         return
 
-    all_sectors = sorted(set(current.keys()) | set(target.keys()))
     rows = []
-    for sector in all_sectors:
-        cur = current.get(sector, 0)
-        tgt = target.get(sector, 0)
-        drft= drift.get(sector, cur - tgt)
-
-        if sector in over:
-            status = "🔴 Overweight"
-        elif sector in under:
-            status = "🟢 Underweight"
-        else:
-            status = "✅ On Target"
-
+    for sector in sorted(set(current) | set(target)):
+        cur  = current.get(sector, 0)
+        tgt  = target.get(sector, 0)
+        drft = drift.get(sector, cur - tgt)
+        if sector in over:   status = "🔴 Over"
+        elif sector in under: status = "🟢 Under"
+        else:                 status = "✅ OK"
         rows.append({
-            "Sector":       sector,
-            "Current %":    f"{cur:.1f}%",
-            "Target %":     f"{tgt:.1f}%",
-            "Drift":        f"{drft:+.1f}%",
-            "Status":       status,
+            "Sector":    sector,
+            "Current":   f"{cur:.1f}%",
+            "Target":    f"{tgt:.1f}%",
+            "Drift":     f"{drft:+.1f}%",
+            "Status":    status,
         })
 
-    df = pd.DataFrame(rows)
-    st.dataframe(df, use_container_width=True, hide_index=True)
+    st.dataframe(pd.DataFrame(rows), use_container_width=True,
+                 hide_index=True, height=260)
 
 
-def _render_correlation_section(
-    high_corr_pairs: list,
-    avg_corr: float | None,
-) -> None:
-    """Render correlation analysis section."""
+def _render_correlation_compact(pa: dict) -> None:
+    """Compact correlation summary."""
+    avg_corr = pa.get("avg_correlation")
+    pairs    = pa.get("high_corr_pairs", [])
+
     if avg_corr is not None:
         if avg_corr < 0.4:
-            st.success(f"✅ Average correlation: **{avg_corr:.2f}** — Portfolio is well diversified")
+            st.success(f"✅ Avg correlation: **{avg_corr:.2f}** — Well diversified")
         elif avg_corr < 0.7:
-            st.warning(f"⚠️ Average correlation: **{avg_corr:.2f}** — Moderate diversification")
+            st.warning(f"⚠️ Avg correlation: **{avg_corr:.2f}** — Moderate concentration")
         else:
-            st.error(f"🔴 Average correlation: **{avg_corr:.2f}** — High concentration risk")
-
-    if high_corr_pairs:
-        st.markdown("**⚠️ Highly Correlated Pairs (>0.7)**")
-        rows = [
-            {"Stock A": a, "Stock B": b, "Correlation": f"{c:.2f}"}
-            for a, b, c in high_corr_pairs
-        ]
-        st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+            st.error(f"🔴 Avg correlation: **{avg_corr:.2f}** — High concentration risk")
     else:
-        st.success("✅ No highly correlated pairs detected")
-
-
-def _render_rebalancing_plan(plan: list[dict]) -> None:
-    """Render the rebalancing action plan as a formatted table."""
-    if not plan:
-        st.success("✅ No rebalancing actions required — portfolio is balanced.")
+        st.caption("Correlation data not available.")
         return
 
+    if pairs:
+        st.caption("**Highly correlated pairs (>0.7):**")
+        rows = [{"Stock A": a, "Stock B": b, "Correlation": f"{c:.2f}"}
+                for a, b, c in pairs]
+        st.dataframe(pd.DataFrame(rows), use_container_width=True,
+                     hide_index=True, height=200)
+    else:
+        st.success("✅ No highly correlated pairs")
+
+
+def _render_rebalancing_actions(plan: list[dict]) -> None:
+    """Rebalancing actions table with estimated capital."""
     rows = []
-    for action in plan:
-        act   = action.get("action", "").lower()
+    for item in plan:
+        act   = item.get("action", "").lower()
         emoji = ACTION_COLOUR.get(act, "⚪")
         rows.append({
-            "Action":          f"{emoji} {act.capitalize()}",
-            "Ticker":          action.get("ticker", ""),
-            "Sector":          action.get("sector", ""),
-            "Current Wt%":     f"{action.get('current_weight', 0):.1f}%",
-            "Target Wt%":      f"{action.get('target_weight', 0):.1f}%",
-            "Shares":          action.get("trade_shares", 0),
-            "Est. Value":      format_inr(action.get("trade_value", 0)),
-            "Score":           f"{action.get('score', '—')}",
+            "Action":      f"{emoji} {act.capitalize()}",
+            "Stock":       item.get("ticker", "").replace(".NS", ""),
+            "Sector":      item.get("sector", ""),
+            "Current Wt":  f"{item.get('current_weight', 0):.1f}%",
+            "Target Wt":   f"{item.get('target_weight', 0):.1f}%",
+            "Shares":      item.get("trade_shares", 0),
+            "Est. Value":  format_inr(item.get("trade_value", 0)),
         })
 
-    df = pd.DataFrame(rows)
-    st.dataframe(df, use_container_width=True, hide_index=True)
-
-    total_deploy = sum(
-        a.get("trade_value", 0)
-        for a in plan
-        if a.get("action", "").lower() in ("initiate", "switch", "distribute")
+    st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+    deploy = sum(
+        i.get("trade_value", 0) for i in plan
+        if i.get("action", "").lower() in ("initiate", "switch", "distribute", "add")
     )
-    if total_deploy > 0:
-        st.info(f"💰 Estimated capital to deploy: **{format_inr(total_deploy)}**")
+    if deploy > 0:
+        st.caption(f"💰 Estimated capital to deploy: **{format_inr(deploy)}**")
 
 
-# ── G2 Discovery View ─────────────────────────────────────────────────────────
+# ── Discovery Section ─────────────────────────────────────────────────────────
 
-def render_discovery_view(g2_results: dict) -> None:
-    """
-    SKILL-P03: Render G2 Discovery Candidates View.
-    Shows ranked new stock candidates with mode and action tags.
-    """
-    st.title("🔍 Stock Discovery (G2)")
-
-    if not g2_results:
-        st.info("Run Analysis first to see discovery candidates.")
-        return
-
+def _render_discovery_section(g2_results: dict) -> None:
+    """Stock discovery candidates with filters and rationale expanders."""
     candidates = g2_results.get("ranked_candidates", [])
-    top        = g2_results.get("top_recommendations", [])
+    top        = g2_results.get("top_recommendations",  [])
 
     if not candidates:
-        st.info("No discovery candidates found in this run.")
+        st.info("No discovery candidates found. Run a fresh analysis to populate.")
         return
 
-    # ── Top Picks ─────────────────────────────────────────────────────────────
+    # Top picks strip
     if top:
-        st.subheader("⭐ Top Recommendations")
+        st.markdown("**Top Picks**")
         cols = st.columns(min(len(top), 5))
         for col, c in zip(cols, top):
-            tag_emoji = {
-                "Initiate":   "🟢",
-                "Switch":     "🔵",
-                "Distribute": "🟡",
-            }.get(c.get("action_tag", ""), "⚪")
+            emoji = TAG_EMOJI.get(c.get("action_tag", ""), "⚪")
             col.metric(
                 c.get("ticker", "").replace(".NS", ""),
                 f"{c.get('peer_score', 0):.1f} / 100",
-                f"{tag_emoji} {c.get('action_tag', '')}",
+                f"{emoji} {c.get('action_tag', '')}",
             )
         st.divider()
 
-    # ── Filters ───────────────────────────────────────────────────────────────
-    st.subheader("📋 All Candidates")
+    # Filters
     col1, col2 = st.columns(2)
     with col1:
         mode_filter = st.selectbox(
-            "Filter by Mode",
-            ["All", "Gap Fill", "Peer Compare"],
+            "Mode", ["All", "Gap Fill", "Peer Compare"], label_visibility="collapsed"
         )
     with col2:
         tag_filter = st.selectbox(
-            "Filter by Action",
-            ["All", "Initiate", "Switch", "Distribute"],
+            "Action", ["All", "Initiate", "Switch", "Distribute"],
+            label_visibility="collapsed"
         )
 
-    # Apply filters
     filtered = candidates
     if mode_filter == "Gap Fill":
         filtered = [c for c in filtered if c.get("mode") == "gap_fill"]
@@ -262,89 +242,82 @@ def render_discovery_view(g2_results: dict) -> None:
     if tag_filter != "All":
         filtered = [c for c in filtered if c.get("action_tag") == tag_filter]
 
-    # ── Candidates Table ──────────────────────────────────────────────────────
+    # Candidates table
     rows = []
     for c in filtered:
-        tag   = c.get("action_tag", "")
-        mode  = c.get("mode", "")
-        emoji = {"Initiate": "🟢", "Switch": "🔵", "Distribute": "🟡"}.get(tag, "⚪")
-        mode_label = "Gap Fill" if mode == "gap_fill" else "Peer"
-
+        tag  = c.get("action_tag", "")
+        mode = "Gap Fill" if c.get("mode") == "gap_fill" else "Peer"
         rows.append({
-            "Ticker":     c.get("ticker", "").replace(".NS", ""),
-            "Sector":     c.get("sector", ""),
-            "Score":      f"{c.get('peer_score', 0):.1f}",
-            "Action":     f"{emoji} {tag}",
-            "Mode":       mode_label,
-            "Score Gap":  f"{c.get('score_gap', '—')}",
-            "Gap Fill %": f"{c.get('gap_size_pct', '—')}",
+            "Stock":    c.get("ticker", "").replace(".NS", ""),
+            "Sector":   c.get("sector", ""),
+            "Score":    c.get("peer_score", 0),
+            "Action":   f"{TAG_EMOJI.get(tag, '⚪')} {tag}",
+            "Mode":     mode,
+            "Gap":      f"{c.get('score_gap', '—')}",
         })
 
     if rows:
-        df = pd.DataFrame(rows)
-        st.dataframe(df, use_container_width=True, hide_index=True)
+        st.dataframe(
+            pd.DataFrame(rows),
+            use_container_width=True,
+            hide_index=True,
+            column_config={
+                "Score": st.column_config.ProgressColumn(
+                    "Score", min_value=0, max_value=100, format="%.1f"
+                ),
+            },
+        )
         st.caption(
-            "💡 Gap Fill = missing sector opportunity | "
-            "Peer = better stock in same sector | "
-            "Score Gap = vs your current holding in that sector"
+            "Gap Fill = new sector opportunity · "
+            "Peer = better stock in an existing sector · "
+            "Gap = score vs your current holding in that sector"
         )
 
-    # ── Rationale Expanders ───────────────────────────────────────────────────
+    # Rationale expanders
     if filtered:
-        st.markdown("---")
-        st.subheader("📝 Recommendation Rationale")
+        st.markdown("**Rationale**")
         for c in filtered:
             rationale = c.get("rationale", {})
             if not rationale:
                 continue
-            tag      = c.get("action_tag", "")
-            ticker   = c.get("ticker", "").replace(".NS", "")
-            score    = c.get("peer_score", 0)
-            emoji    = {"Initiate": "🟢", "Switch": "🔵", "Distribute": "🟡"}.get(tag, "⚪")
+            tag    = c.get("action_tag", "")
+            ticker = c.get("ticker", "").replace(".NS", "")
+            score  = c.get("peer_score", 0)
+            emoji  = TAG_EMOJI.get(tag, "⚪")
 
-            with st.expander(
-                f"{emoji} {ticker} — {score:.1f}/100 — {tag}",
-                expanded=False,
-            ):
-                # Summary
-                st.markdown(f"**📋 Summary**")
+            with st.expander(f"{emoji} {ticker} — {score:.1f}/100 — {tag}", expanded=False):
                 st.info(rationale.get("summary", ""))
-
                 col1, col2 = st.columns(2)
                 with col1:
                     strengths = rationale.get("strengths", [])
                     if strengths:
-                        st.markdown("**✅ Key Strengths**")
-                        for s in strengths:
-                            st.markdown(f"- {s}")
+                        st.markdown("**✅ Strengths**")
+                        for s in strengths: st.markdown(f"- {s}")
                 with col2:
                     risks = rationale.get("risks", [])
                     if risks:
-                        st.markdown("**⚠️ Key Risks**")
-                        for r in risks:
-                            st.markdown(f"- {r}")
-
-                st.markdown("**🎯 Suggested Action**")
+                        st.markdown("**⚠️ Risks**")
+                        for r in risks: st.markdown(f"- {r}")
                 st.success(rationale.get("action", ""))
 
-                # Scorecard grades
-                st.markdown("**📊 Scorecard Grades**")
-                grade_cols = st.columns(5)
-                grade_map  = {
-                    "Fundamental": c.get("fundamental_grade", "—"),
-                    "Technical":   c.get("technical_grade",   "—"),
-                    "Valuation":   c.get("valuation_grade",   "—"),
-                    "Risk":        c.get("risk_grade",        "—"),
-                    "Sentiment":   c.get("sentiment_grade",   "—"),
-                }
-                grade_emoji = {
-                    "Strong": "🟢", "Moderate": "🟡", "Weak": "🔴",
-                    "Bullish": "🟢", "Neutral": "🟡", "Bearish": "🔴",
-                    "Undervalued": "🟢", "Fair": "🟡", "Overvalued": "🔴",
-                    "Low": "🟢", "High": "🔴",
-                    "Positive": "🟢", "Mixed": "🟡", "Negative": "🔴",
-                }
-                for col, (name, grade) in zip(grade_cols, grade_map.items()):
-                    col.metric(name, f"{grade_emoji.get(grade,'⚪')} {grade}")
-    else:
-        st.info("No candidates match the selected filters.")
+                grades = st.columns(5)
+                for col, (name, key) in zip(grades, [
+                    ("Fund.", "fundamental_grade"), ("Tech.", "technical_grade"),
+                    ("Val.",  "valuation_grade"),   ("Risk",  "risk_grade"),
+                    ("Sent.", "sentiment_grade"),
+                ]):
+                    g = c.get(key, "—")
+                    col.metric(name, f"{GRADE_EMOJI.get(g, '⚪')} {g}")
+
+
+# ── Legacy functions kept for backward compatibility ──────────────────────────
+
+def render_portfolio_optimisation_view(g3_results: dict) -> None:
+    """Legacy — now part of render_opportunities_view."""
+    pa = g3_results.get("portfolio_analytics", {}) if g3_results else {}
+    _render_rebalancing_section(g3_results, pa)
+
+
+def render_discovery_view(g2_results: dict) -> None:
+    """Legacy — now part of render_opportunities_view."""
+    _render_discovery_section(g2_results)

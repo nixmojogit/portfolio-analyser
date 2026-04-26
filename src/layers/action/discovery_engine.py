@@ -2,10 +2,10 @@
 discovery_engine.py
 Layer      : Action
 Owns       : SKILL-A02, SKILL-A03, SKILL-A04
-Description: G2 discovery — fetches Nifty sector index constituents
+Description: G2 discovery -- fetches Nifty sector index constituents
              dynamically from niftyindices.com via SKILL-D15, removes
              existing holdings, scores each candidate using the full
-             scoring pipeline, and returns top N ranked stocks as new ideas.
+             scoring pipeline, and returns all ranked stocks as new ideas.
 """
 
 from __future__ import annotations
@@ -16,7 +16,7 @@ from src.utils.logger import get_logger
 log = get_logger(__name__)
 
 
-# ── SKILL-A02: Screen New Investment Ideas ────────────────────────────────────
+# -- SKILL-A02: Screen New Investment Ideas ------------------------------------
 
 def screen_new_ideas(
     holdings: list[dict],
@@ -24,23 +24,23 @@ def screen_new_ideas(
 ) -> dict[str, Any]:
     """
     SKILL-A02: Screen New Investment Ideas.
-    Fetches all Nifty sector index constituents from niftyindices.com (SKILL-D15),
-    removes existing portfolio holdings, scores each candidate using the full
-    scoring pipeline (SKILL-A03), and returns top 10 ranked by Overall Score.
-    Args:
-        holdings : list of current portfolio holdings dicts
-        config   : merged config dict
-    Returns: dict with:
-        new_ideas          (list of top 10 scored candidates)
-        total_evaluated    (int: candidates that passed min score)
-        total_candidates   (int: total unique candidates before scoring)
-        ranked_candidates  (same as new_ideas — for backward compatibility)
-        top_recommendations(same as new_ideas[:5] — for backward compatibility)
+    Fetches all Nifty sector index constituents from niftyindices.com,
+    removes existing portfolio holdings, scores each candidate using the
+    full scoring pipeline, and returns all scored stocks ranked by score.
+    No minimum score filter -- all scored stocks are shown.
     """
     from src.layers.data.sector_universe_module import fetch_all_sector_constituents
+    from src.layers.action.orchestrator import (
+        _build_fundamental_driver,
+        _build_sentiment_driver,
+    )
 
-    goals     = (config or {}).get("goals", {})
-    sectors   = list(goals.get("target_sector_allocation", {}).keys())
+    goals   = (config or {}).get("goals", {})
+    # Only fetch sectors with non-zero target allocation
+    sectors = [
+        s for s, w in goals.get("target_sector_allocation", {}).items()
+        if w > 0
+    ]
 
     # Existing portfolio base symbols for exclusion
     existing_base = {h["ticker"].split(".")[0].upper() for h in holdings}
@@ -60,12 +60,45 @@ def screen_new_ideas(
 
     log.info(f"[SKILL-A02] {len(candidates)} unique candidates to evaluate")
 
-    # Score each candidate — no minimum score filter, show all scored stocks
+    # Score each candidate
     scored: list = []
     for c in candidates:
         result = evaluate_candidate(c["ticker"], config)
         if result is None:
             continue
+
+        # Build enriched reason from fundamental + sentiment drivers
+        metrics = result.get("metrics", {})
+
+        fund_signals = {
+            "revenue_signal":  metrics.get("revenue_signal", "amber"),
+            "margin_trend":    metrics.get("margin_trend", "stable"),
+            "fcf_signal":      metrics.get("fcf_signal", "amber"),
+            "roic_signal":     metrics.get("roic_signal", "amber"),
+            "promoter_signal": metrics.get("promoter_signal", "amber"),
+        }
+        sent_data = {
+            "sentiment_score": metrics.get("sentiment_score", 50),
+            "sentiment_label": metrics.get("sentiment_label", "neutral"),
+            "positive_themes": metrics.get("positive_themes", []),
+            "negative_themes": metrics.get("negative_themes", []),
+            "analyst_rec":     metrics.get("analyst_rec"),
+            "analyst_target":  metrics.get("analyst_target"),
+        }
+        cp = metrics.get("current_price")
+
+        fund_driver      = _build_fundamental_driver(fund_signals)
+        sentiment_driver = _build_sentiment_driver(sent_data, cp)
+
+        reason_parts = [
+            f"New idea -- score {result['score']:.1f}/100. Consider initiating a position."
+        ]
+        if fund_driver:
+            reason_parts.append(f"Fundamentals: {fund_driver}")
+        if sentiment_driver:
+            reason_parts.append(f"Market view: {sentiment_driver}")
+        reason = " | ".join(reason_parts)
+
         scored.append({
             "ticker":            c["ticker"],
             "sector":            c["sector"],
@@ -80,39 +113,38 @@ def screen_new_ideas(
             "valuation_score":   result.get("valuation_score",   50.0),
             "risk_score":        result.get("risk_score",        50.0),
             "sentiment_score":   result.get("sentiment_score",   50.0),
-            "metrics":           result.get("metrics", {}),
+            "metrics":           metrics,
             "fundamental_breakdown": result.get("fundamental_breakdown", {}),
             "technical_breakdown":   result.get("technical_breakdown", {}),
             "valuation_breakdown":   result.get("valuation_breakdown", {}),
             "risk_breakdown":        result.get("risk_breakdown", {}),
             "sentiment_breakdown":   result.get("sentiment_breakdown", {}),
-            # Keep fields for backward compatibility with app.py detail view
+            "reason":            reason,
+            # Backward compatibility
             "peer_score":        result["score"],
             "action_tag":        "Initiate",
             "mode":              "new_idea",
             "rationale":         {},
         })
 
-    # Sort by overall score descending — show all scored stocks
+    # Sort by overall score descending -- show all scored stocks
     scored.sort(key=lambda x: x["overall_score"], reverse=True)
-    top_ideas = scored   # all scored stocks, no limit
 
     log.info(
         f"[SKILL-A02] {len(scored)} stocks scored and ranked | "
-        f"Top scorer: {top_ideas[0]['ticker'] if top_ideas else 'none'}"
+        f"Top scorer: {scored[0]['ticker'] if scored else 'none'}"
     )
 
     return {
-        "new_ideas":           top_ideas,
+        "new_ideas":           scored,
         "total_evaluated":     len(scored),
         "total_candidates":    len(candidates),
-        # Backward compatibility keys used by app.py and dashboard.py
-        "ranked_candidates":   top_ideas,
-        "top_recommendations": top_ideas[:5],
+        "ranked_candidates":   scored,
+        "top_recommendations": scored[:5],
     }
 
 
-# ── SKILL-A03: Evaluate a Single Candidate ───────────────────────────────────
+# -- SKILL-A03: Evaluate a Single Candidate ------------------------------------
 
 def evaluate_candidate(
     ticker: str,
@@ -120,9 +152,9 @@ def evaluate_candidate(
 ) -> dict[str, Any] | None:
     """
     SKILL-A03: Run the full scoring pipeline for a single candidate ticker.
-    Claude AI sentiment is skipped — defaults to neutral 50.
-    Returns dict with overall score + scorecard grades and numeric scores,
-    or None on failure.
+    Claude AI sentiment is skipped -- defaults to neutral 50.
+    Returns dict with overall score, scorecard grades, numeric scores,
+    breakdowns, and raw metrics. Returns None on failure.
     """
     from src.layers.data.price_module import (
         fetch_historical_price_data,
@@ -247,19 +279,19 @@ def evaluate_candidate(
             "valuation_grade":   v_score["valuation_grade"],
             "risk_grade":        r_score["risk_grade"],
             "sentiment_grade":   s_score["sentiment_grade"],
-            # Numeric scores for display
+            # Numeric scores
             "fundamental_score": f_score["fundamental_score"],
             "technical_score":   t_score["technical_score"],
             "valuation_score":   v_score["valuation_score"],
             "risk_score":        r_score["risk_score"],
             "sentiment_score":   s_score["sentiment_scorecard_score"],
-            # Breakdowns for signal column in stock detail view
+            # Scorecard breakdowns for signal column
             "fundamental_breakdown": f_score.get("fundamental_breakdown", {}),
             "technical_breakdown":   t_score.get("technical_breakdown", {}),
             "valuation_breakdown":   v_score.get("valuation_breakdown", {}),
             "risk_breakdown":        r_score.get("risk_breakdown", {}),
             "sentiment_breakdown":   s_score.get("sentiment_breakdown", {}),
-            # Raw metrics for stock detail view
+            # Raw metrics for stock detail view and reason builder
             "metrics": {
                 "current_price":      cp,
                 "revenue_growth_yoy": rev["revenue_growth_yoy"],
@@ -293,6 +325,11 @@ def evaluate_candidate(
                 "analyst_target_low":    ratios.get("analyst_target_low"),
                 "analyst_target_high":   ratios.get("analyst_target_high"),
                 "analyst_all_ratings":   [],
+                # Raw signals for reason builder
+                "revenue_signal":  rev["revenue_signal"],
+                "fcf_signal":      fcf["fcf_signal"],
+                "roic_signal":     roic["roic_signal"],
+                "promoter_signal": prom["promoter_signal"],
             },
         }
 
@@ -301,7 +338,7 @@ def evaluate_candidate(
         return None
 
 
-# ── SKILL-A04: Rank candidates (kept for backward compatibility) ──────────────
+# -- Legacy stubs --------------------------------------------------------------
 
 def rank_discovery_candidates(
     gap_fill_candidates: list[dict],
@@ -309,8 +346,7 @@ def rank_discovery_candidates(
     g1_results: dict,
     config: dict | None = None,
 ) -> dict[str, Any]:
-    """Legacy wrapper — new discovery uses screen_new_ideas() directly."""
-    log.debug("[SKILL-A04] rank_discovery_candidates called — legacy path")
+    """Legacy wrapper -- new discovery uses screen_new_ideas() directly."""
     all_c = gap_fill_candidates + peer_candidates
     all_c.sort(key=lambda c: c.get("peer_score", 0), reverse=True)
     return {"ranked_candidates": all_c, "top_recommendations": all_c[:5]}
@@ -322,7 +358,7 @@ def tag_peer_recommendation(
     switch_gap: float,
     distribute_gap: float,
 ) -> str:
-    """Legacy helper — retained for backward compatibility."""
+    """Legacy helper -- retained for backward compatibility."""
     gap = peer_score - avg_holding_score
     if gap >= switch_gap:     return "Switch"
     if gap >= distribute_gap: return "Distribute"

@@ -92,7 +92,7 @@ def generate_rebalancing_plan(
             current_wt    = (current_value / total_value * 100) if total_value > 0 else 0
             n_stocks      = max(len(sector_holdings), 1)
             target_wt     = (target_alloc.get(sector, 0) or 0) / n_stocks
-            trade_value   = -max(0, (current_wt - target_wt) / 100 * total_value)
+            trade_value   = max(0, (current_wt - target_wt) / 100 * total_value)
             trade_shares  = int(trade_value / price) if price > 0 else 0
             if trade_shares > 0:
                 plan.append({

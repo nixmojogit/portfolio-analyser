@@ -1,0 +1,199 @@
+skills:
+  SKILL-D01:
+    enabled: true
+    cache_ttl_hours: 24
+  SKILL-D02:
+    enabled: true
+    cache_ttl_hours: 1
+  SKILL-D03:
+    enabled: true
+    cache_ttl_hours: 168
+  SKILL-D04:
+    enabled: true
+    cache_ttl_hours: 24
+  SKILL-D05:
+    enabled: true
+    cache_ttl_hours: 168
+  SKILL-D06:
+    enabled: true
+    cache_ttl_hours: 24
+  SKILL-D07:
+    enabled: true
+    cache_ttl_hours: 720
+  SKILL-D08:
+    enabled: true
+    cache_ttl_hours: 720
+  SKILL-D09:
+    enabled: true
+    cache_ttl_hours: 6
+  SKILL-D10:
+    enabled: true
+    cache_ttl_hours: 6
+  SKILL-D11:
+    enabled: true
+    cache_ttl_hours: 168
+  SKILL-D12:
+    enabled: true
+    cache_ttl_hours: 24
+  SKILL-D13:
+    enabled: true
+    cache_ttl_hours: null
+  SKILL-D14:
+    enabled: true
+    cache_ttl_hours: null
+  SKILL-I01:
+    enabled: true
+    cache_ttl_hours: null
+  SKILL-I02:
+    enabled: true
+    cache_ttl_hours: null
+  SKILL-I03:
+    enabled: true
+    cache_ttl_hours: null
+  SKILL-I04:
+    enabled: true
+    cache_ttl_hours: null
+  SKILL-I05:
+    enabled: true
+    cache_ttl_hours: null
+  SKILL-I06:
+    enabled: true
+    cache_ttl_hours: null
+  SKILL-I07:
+    enabled: true
+    cache_ttl_hours: null
+  SKILL-I08:
+    enabled: true
+    cache_ttl_hours: null
+  SKILL-I09:
+    enabled: true
+    cache_ttl_hours: null
+  SKILL-I10:
+    enabled: true
+    cache_ttl_hours: null
+  SKILL-I11:
+    enabled: true
+    cache_ttl_hours: null
+  SKILL-I12:
+    enabled: true
+    cache_ttl_hours: null
+  SKILL-I13:
+    enabled: true
+    cache_ttl_hours: null
+  SKILL-I14:
+    enabled: true
+    cache_ttl_hours: null
+  SKILL-I15:
+    enabled: true
+    cache_ttl_hours: null
+  SKILL-I16:
+    enabled: true
+    cache_ttl_hours: null
+  SKILL-I17:
+    enabled: true
+    cache_ttl_hours: null
+  SKILL-I18:
+    enabled: true
+    cache_ttl_hours: 12
+  SKILL-I19:
+    enabled: true
+    cache_ttl_hours: null
+  SKILL-I20:
+    enabled: true
+    cache_ttl_hours: null
+  SKILL-I21:
+    enabled: true
+    cache_ttl_hours: null
+  SKILL-I22:
+    enabled: true
+    cache_ttl_hours: null
+  SKILL-I23:
+    enabled: true
+    cache_ttl_hours: null
+  SKILL-I24:
+    enabled: true
+    cache_ttl_hours: null
+  SKILL-I25:
+    enabled: true
+    cache_ttl_hours: null
+  SKILL-I26:
+    enabled: true
+    cache_ttl_hours: null
+  SKILL-I27:
+    enabled: true
+    cache_ttl_hours: null
+  SKILL-I28:
+    enabled: true
+    cache_ttl_hours: null
+  SKILL-I29:
+    enabled: true
+    cache_ttl_hours: null
+  SKILL-I30:
+    enabled: true
+    cache_ttl_hours: null
+  SKILL-I31:
+    enabled: true
+    cache_ttl_hours: null
+  SKILL-A01:
+    enabled: true
+    cache_ttl_hours: null
+  SKILL-A02:
+    enabled: true
+    cache_ttl_hours: null
+  SKILL-A03:
+    enabled: true
+    cache_ttl_hours: null
+  SKILL-A04:
+    enabled: true
+    cache_ttl_hours: null
+  SKILL-A05:
+    enabled: true
+    cache_ttl_hours: null
+  SKILL-A06:
+    enabled: true
+    cache_ttl_hours: null
+  SKILL-A07:
+    enabled: true
+    cache_ttl_hours: null
+  SKILL-A08:
+    enabled: true
+    cache_ttl_hours: null
+  SKILL-A09:
+    enabled: true
+    cache_ttl_hours: null
+  SKILL-A10:
+    enabled: true
+    cache_ttl_hours: null
+  SKILL-A11:
+    enabled: true
+    cache_ttl_hours: null
+  SKILL-A12:
+    enabled: true
+    cache_ttl_hours: null
+  SKILL-A13:
+    enabled: true
+    cache_ttl_hours: null
+  SKILL-P01:
+    enabled: true
+    cache_ttl_hours: null
+  SKILL-P02:
+    enabled: true
+    cache_ttl_hours: null
+  SKILL-P03:
+    enabled: true
+    cache_ttl_hours: null
+  SKILL-P04:
+    enabled: true
+    cache_ttl_hours: null
+  SKILL-P05:
+    enabled: true
+    cache_ttl_hours: null
+  SKILL-P06:
+    enabled: true
+    cache_ttl_hours: null
+  SKILL-P07:
+    enabled: true
+    cache_ttl_hours: null
+  SKILL-P08:
+    enabled: true
+    cache_ttl_hours: null

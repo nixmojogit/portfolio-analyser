@@ -57,8 +57,8 @@ def render_stock_detail_view(ticker: str, stock_data: dict) -> None:
 
     # ── Top Metrics ───────────────────────────────────────────────────────────
     col1, col2, col3, col4, col5 = st.columns(5)
-    col1.metric("Current Price",  f"₹{cp:,.2f}" if cp is not None else "N/A")
-    col2.metric("Buy Price",      f"₹{bp:,.2f}" if bp is not None else "N/A")
+    col1.metric("Current Price",  f"₹{cp:,.2f}")
+    col2.metric("Buy Price",      f"₹{bp:,.2f}")
     col3.metric("Quantity",       f"{qty:,.0f}")
     col4.metric("Holding Value",  format_inr(val))
     drawdown = sl.get("current_drawdown_pct", 0) or 0
@@ -151,7 +151,7 @@ def _render_recommendation_panel(rec_detail: dict, sl: dict) -> None:
     elif sl_signal == "warning":
         st.warning(f"🟠 **Stop-Loss Warning** — {prox:.1f}% above stop at ₹{sl_price:,.2f}")
     else:
-        st.success(f"🟢 Stop-Loss Safe{f" — Stop at ₹{sl_price:,.2f}" if sl_price is not None else ""}")
+        st.success(f"🟢 Stop-Loss Safe — Stop at ₹{sl_price:,.2f}")
 
 
 def _render_metrics_table(metrics: dict, stock_data: dict) -> None:

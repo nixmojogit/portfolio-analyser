@@ -228,6 +228,7 @@ def _render_holdings_table(results: dict) -> None:
         bd  = r.get("score_breakdown", {})
         sl  = r.get("stop_loss", {})
         cp  = r.get("current_price", 0) or 0
+        quantity = r.get("quantity", 0) or 0
 
         sl_price  = sl.get("stop_loss_price")
         sl_signal = sl.get("stop_loss_signal", "safe")

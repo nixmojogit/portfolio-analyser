@@ -1,0 +1,168 @@
+revenue_growth_yoy_pct:
+  green_above: 10
+  amber_above: 0
+  red_below: 0
+net_profit_margin_pct:
+  green_above: 15
+  amber_above: 5
+  red_below: 5
+fcf:
+  green: positive_and_growing
+  amber: positive_but_flat
+  red: negative
+fcf_growth_yoy_pct:
+  green_above: 10
+  amber_above: 0
+  red_below: 0
+fcf_vs_net_income_ratio:
+  green_above: 0.8
+  amber_above: 0.5
+  red_below: 0.5
+debt_to_equity:
+  green_below: 0.5
+  amber_below: 1.5
+  red_above: 2.0
+interest_coverage_ratio:
+  green_above: 5.0
+  amber_above: 2.0
+  red_below: 2.0
+roe_pct:
+  green_above: 15
+  amber_above: 10
+  red_below: 10
+roic_pct:
+  green_above: 12
+  amber_above: 8
+  red_below: 8
+operating_margin_pct:
+  green_above: 15
+  amber_above: 8
+  red_below: 8
+eps_growth_yoy_pct:
+  green_above: 10
+  amber_above: 0
+  red_below: 0
+pe_ratio:
+  green_below: 15
+  amber_below: 25
+  red_above: 30
+forward_pe:
+  green_below: 15
+  amber_below: 22
+  red_above: 25
+peg_ratio:
+  green_below: 1.0
+  amber_below: 1.5
+  red_above: 2.0
+pb_ratio:
+  green_below: 1.5
+  amber_below: 3.0
+  red_above: 4.0
+ps_ratio:
+  green_below: 2
+  amber_below: 5
+  red_above: 8
+ev_ebitda:
+  green_below: 8
+  amber_below: 15
+  red_above: 20
+pe_vs_sector_premium_pct:
+  discount_below: -15
+  inline_between:
+  - -15
+  - 15
+  premium_above: 15
+dividend_yield_pct:
+  green_above: 3
+  amber_above: 1
+  red_below: 1
+payout_ratio_pct:
+  green_between:
+  - 30
+  - 60
+  amber_between:
+  - 60
+  - 80
+  red_above: 80
+price_vs_sma50_pct:
+  bullish_above: 3
+  neutral_between:
+  - -3
+  - 3
+  bearish_below: -3
+price_vs_sma200_pct:
+  bullish_above: 0
+  bearish_below: 0
+rsi:
+  oversold_below: 30
+  neutral_low: 40
+  neutral_high: 60
+  overbought_above: 70
+volume_ratio:
+  high_conviction_above: 1.5
+  low_conviction_below: 0.5
+week_52_position_pct_from_high:
+  strong_momentum_within: 10
+  weak_momentum_beyond: 40
+beta:
+  low_below: 0.8
+  moderate_below: 1.2
+  high_above: 1.5
+short_interest_pct:
+  green_below: 5
+  amber_below: 15
+  red_above: 20
+portfolio_concentration_pct:
+  green_below: 5
+  amber_below: 10
+  red_above: 15
+debt_ebitda:
+  green_below: 2
+  amber_below: 3
+  red_above: 4
+current_ratio:
+  green_above: 2
+  amber_above: 1
+  red_below: 1
+stop_loss_warning_proximity_pct: 3
+earnings_surprise_pct:
+  consistent_beat_above: 5
+  consistent_miss_below: -5
+analyst_target_upside_pct:
+  green_above: 15
+  amber_above: 0
+  red_below: 0
+news_sentiment_score:
+  positive_above: 60
+  negative_below: 40
+institutional_change_qoq_pct:
+  accumulating_above: 1
+  distributing_below: -1
+promoter_holding_pct:
+  green_above: 50
+  amber_above: 40
+  red_below: 40
+promoter_change_qoq_pct:
+  significant_drop_below: -3
+promoter_pledge_pct:
+  green_below: 10
+  amber_below: 30
+  red_above: 30
+sharpe_ratio:
+  excellent_above: 1.5
+  good_above: 1.0
+  poor_below: 1.0
+portfolio_beta:
+  defensive_below: 0.8
+  market_neutral_below: 1.2
+  aggressive_above: 1.5
+max_drawdown_pct:
+  green_below: 10
+  amber_below: 20
+  red_above: 20
+sector_concentration_pct:
+  green_below: 25
+  amber_below: 35
+  red_above: 40
+inter_stock_correlation:
+  high_correlation_above: 0.7

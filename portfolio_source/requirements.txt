@@ -1,0 +1,30 @@
+# Data Acquisition
+yfinance>=0.2.40
+requests>=2.31.0
+beautifulsoup4>=4.12.3
+feedparser>=6.0.11
+
+# Data Processing
+pandas>=2.2.2
+numpy>=2.0.0
+
+# Portfolio Analytics
+scipy>=1.13.0
+pyportfolioopt>=1.5.5
+
+# AI / NLP
+anthropic>=0.28.0
+
+# Dashboard / UI
+streamlit>=1.35.0
+
+# Scheduling
+APScheduler>=3.10.4
+
+# Configuration
+PyYAML>=6.0.1
+python-dotenv>=1.0.1
+
+# Reporting & Exports
+fpdf2>=2.7.9
+openpyxl>=3.1.2

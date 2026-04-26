@@ -1,0 +1,42 @@
+# Clear all data from portfolio.db (keep table structures)
+python3 -c "
+import sqlite3
+from pathlib import Path
+
+db = sqlite3.connect('data/portfolio/portfolio.db')
+tables = [
+    'holdings',
+    'scores_history',
+    'recommendations_history',
+    'alerts_log',
+    'watchlist',
+    'rebalancing_log',
+    'performance_history',
+    'thesis_log',
+]
+for t in tables:
+    try:
+        db.execute(f'DELETE FROM {t}')
+        print(f'Cleared: {t}')
+    except Exception as e:
+        print(f'Skipped {t}: {e}')
+db.commit()
+db.close()
+print('portfolio.db cleared')
+"
+
+# Clear all data from market_data.db cache (keep table structure)
+python3 -c "
+import sqlite3
+
+db = sqlite3.connect('data/cache/market_data.db')
+db.execute('DELETE FROM cache')
+db.commit()
+db.close()
+print('market_data.db cache cleared')
+"
+
+# Delete last results JSON
+rm -f data/portfolio/last_results.json
+
+echo "Factory reset complete -- all data cleared, structures preserved"

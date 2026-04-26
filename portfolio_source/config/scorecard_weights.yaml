@@ -1,0 +1,44 @@
+overall_score_weights:
+  fundamental: 0.3
+  valuation: 0.25
+  technical: 0.2
+  sentiment: 0.15
+  risk: 0.1
+signal_scores:
+  green: 80
+  amber: 50
+  red: 15
+  na: null
+recommendation_thresholds:
+  strong_buy: 75
+  buy: 55
+  hold: 35
+  reduce: 20
+  exit: 0
+grade_cutoffs:
+  fundamental:
+    strong_above: 65
+    moderate_above: 35
+    weak_below: 35
+  technical:
+    bullish_above: 65
+    neutral_above: 35
+    bearish_below: 35
+  valuation:
+    undervalued_above: 65
+    fair_above: 35
+    overvalued_below: 35
+  risk:
+    low_above: 65
+    moderate_above: 35
+    high_below: 35
+  sentiment:
+    positive_above: 65
+    mixed_above: 35
+    negative_below: 35
+portfolio_fit_weight: 0.2
+exit_overrides:
+  stop_loss_breach_triggers_exit: true
+  thesis_broken_triggers_reduce: true
+  overvaluation_trim_peg_above: 2.5
+  overvaluation_trim_rsi_above: 70
