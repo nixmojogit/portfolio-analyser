@@ -493,11 +493,20 @@ def _validate_holding_row(idx: int, row: pd.Series) -> list[str]:
 
 
 def _write_holdings_to_db(df: pd.DataFrame, skill_id: str) -> list[str]:
-    """Write validated holdings DataFrame to portfolio.db. Returns error list."""
+    """
+    Write validated holdings DataFrame to portfolio.db.
+    Wipes and replaces all existing holdings -- the Excel file is the
+    single source of truth. Removed stocks are deleted automatically.
+    Historical scores and recommendations are retained in their own tables.
+    Returns error list.
+    """
     errors = []
     try:
         db_path = PORTFOLIO_DB
         with sqlite3.connect(db_path) as conn:
+            # Delete all existing holdings -- Excel is the source of truth
+            conn.execute("DELETE FROM holdings")
+            log.info(f"[{skill_id}] Cleared existing holdings before import")
             for _, row in df.iterrows():
                 try:
                     conn.execute("""
@@ -505,14 +514,6 @@ def _write_holdings_to_db(df: pd.DataFrame, skill_id: str) -> list[str]:
                             (ticker, company_name, sector, buy_price, quantity,
                              stop_loss_pct, thesis, thesis_intact)
                         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                        ON CONFLICT(ticker) DO UPDATE SET
-                            company_name  = excluded.company_name,
-                            sector        = excluded.sector,
-                            buy_price     = excluded.buy_price,
-                            quantity      = excluded.quantity,
-                            stop_loss_pct = excluded.stop_loss_pct,
-                            thesis        = excluded.thesis,
-                            updated_at    = datetime('now')
                     """, (
                         str(row["Ticker"]),
                         str(row["Company Name"]),
