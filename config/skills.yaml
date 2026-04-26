@@ -197,3 +197,6 @@ skills:
   SKILL-P08:
     enabled: true
     cache_ttl_hours: null
+SKILL-D15:
+    enabled: true
+    cache_ttl_hours: 168
