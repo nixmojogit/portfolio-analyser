@@ -40,8 +40,6 @@ def screen_new_ideas(
     from src.layers.data.sector_universe_module import fetch_all_sector_constituents
 
     goals     = (config or {}).get("goals", {})
-    min_score = goals.get("g2_min_candidate_score", 45)
-    max_ideas = 10
     sectors   = list(goals.get("target_sector_allocation", {}).keys())
 
     # Existing portfolio base symbols for exclusion
@@ -62,13 +60,11 @@ def screen_new_ideas(
 
     log.info(f"[SKILL-A02] {len(candidates)} unique candidates to evaluate")
 
-    # Score each candidate
+    # Score each candidate — no minimum score filter, show all scored stocks
     scored: list = []
     for c in candidates:
         result = evaluate_candidate(c["ticker"], config)
         if result is None:
-            continue
-        if result["score"] < min_score:
             continue
         scored.append({
             "ticker":            c["ticker"],
@@ -85,6 +81,11 @@ def screen_new_ideas(
             "risk_score":        result.get("risk_score",        50.0),
             "sentiment_score":   result.get("sentiment_score",   50.0),
             "metrics":           result.get("metrics", {}),
+            "fundamental_breakdown": result.get("fundamental_breakdown", {}),
+            "technical_breakdown":   result.get("technical_breakdown", {}),
+            "valuation_breakdown":   result.get("valuation_breakdown", {}),
+            "risk_breakdown":        result.get("risk_breakdown", {}),
+            "sentiment_breakdown":   result.get("sentiment_breakdown", {}),
             # Keep fields for backward compatibility with app.py detail view
             "peer_score":        result["score"],
             "action_tag":        "Initiate",
@@ -92,13 +93,13 @@ def screen_new_ideas(
             "rationale":         {},
         })
 
-    # Sort by overall score descending, take top N
+    # Sort by overall score descending — show all scored stocks
     scored.sort(key=lambda x: x["overall_score"], reverse=True)
-    top_ideas = scored[:max_ideas]
+    top_ideas = scored   # all scored stocks, no limit
 
     log.info(
-        f"[SKILL-A02] {len(scored)} passed min score | "
-        f"Top {len(top_ideas)}: {[c['ticker'] for c in top_ideas]}"
+        f"[SKILL-A02] {len(scored)} stocks scored and ranked | "
+        f"Top scorer: {top_ideas[0]['ticker'] if top_ideas else 'none'}"
     )
 
     return {
@@ -252,6 +253,12 @@ def evaluate_candidate(
             "valuation_score":   v_score["valuation_score"],
             "risk_score":        r_score["risk_score"],
             "sentiment_score":   s_score["sentiment_scorecard_score"],
+            # Breakdowns for signal column in stock detail view
+            "fundamental_breakdown": f_score.get("fundamental_breakdown", {}),
+            "technical_breakdown":   t_score.get("technical_breakdown", {}),
+            "valuation_breakdown":   v_score.get("valuation_breakdown", {}),
+            "risk_breakdown":        r_score.get("risk_breakdown", {}),
+            "sentiment_breakdown":   s_score.get("sentiment_breakdown", {}),
             # Raw metrics for stock detail view
             "metrics": {
                 "current_price":      cp,
